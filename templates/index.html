@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SE Manager Hub</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+<nav id="sidebar">
+  <div class="sidebar-header">
+    <div class="logo-mark">SE</div>
+    <div>
+      <div class="sidebar-wordmark">SE Manager Hub</div>
+      <div class="sidebar-sub">Team pipeline &amp; check-ins</div>
+    </div>
+  </div>
+  <div class="sidebar-nav">
+    <button class="sidebar-btn active" data-page="dashboard" onclick="navigate('dashboard')">
+      <span class="sidebar-icon">&#128202;</span> Dashboard
+    </button>
+    <button class="sidebar-btn" data-page="team" onclick="navigate('team')">
+      <span class="sidebar-icon">&#128101;</span> Team
+    </button>
+    <button class="sidebar-btn" data-page="settings" onclick="navigate('settings')">
+      <span class="sidebar-icon">&#9881;</span> Settings
+    </button>
+  </div>
+  <div class="sidebar-footer">Data: Team Tracking Sheet + Slack</div>
+</nav>
+
+<div id="app">
+  <div class="topbar">
+    <div>
+      <h1 id="page-title">Dashboard</h1>
+      <div class="sub">Current-quarter pipeline across the team</div>
+    </div>
+  </div>
+
+  <div class="page active" id="page-dashboard">
+    <div id="dashboard-content"><div class="empty-state">Loading...</div></div>
+  </div>
+
+  <div class="page" id="page-team">
+    <div class="section-header"><h2>Team</h2></div>
+    <div id="team-content"><div class="empty-state">Loading...</div></div>
+  </div>
+
+  <div class="page" id="page-person">
+    <div id="person-content"><div class="empty-state">Loading...</div></div>
+  </div>
+
+  <div class="page" id="page-settings">
+    <div class="section-header"><h2>Settings</h2></div>
+    <div id="settings-content"><div class="empty-state">Loading...</div></div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

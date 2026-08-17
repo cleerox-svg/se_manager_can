@@ -1,0 +1,7 @@
+flask
+python-dotenv
+gspread
+google-auth
+slack_sdk
+anthropic
+httpx
