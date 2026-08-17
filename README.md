@@ -27,9 +27,6 @@ with no build step. Review drafting calls the LiteLLM proxy
 
 ## Run it
 
-See [SETUP.md](SETUP.md) for the one-time Google service account + Slack
-app setup, then:
-
 ```bash
 py -m venv venv
 venv\Scripts\activate
@@ -37,6 +34,12 @@ pip install -r requirements.txt
 copy .env.example .env
 py app.py
 ```
+
+Data gets in via one of two paths — see [SETUP.md](SETUP.md):
+- **Ask Claude to sync** (no setup) — Claude uses its own Google Sheets /
+  Slack MCP access and loads the result with `mcp_ingest.py`.
+- **Automated background sync** (optional) — a Google service account +
+  Slack App/user token, wired to the Settings-page Sync buttons.
 
 ## Data model
 
@@ -47,6 +50,7 @@ py app.py
 
 ## Conventions
 
-- Push to GitHub only — never sync this repo into a local Desktop folder.
+- Local only for now — no GitHub, no remote repo. Local `git commit`s are
+  fine; nothing gets pushed anywhere.
 - Update this README after any non-trivial feature change.
 - Work in small, reviewable chunks with a visible task list.

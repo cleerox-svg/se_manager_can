@@ -26,10 +26,33 @@ Store alias and fails.
   Team page's active/inactive flag governs who counts as "current team" for
   review generation.
 
+## MCP-assisted sync (no credentials needed)
+
+`sheets_sync.py` and `slack_sync.py` each have two entry points: a
+credential-based one (service account / Slack user token, used by the
+Settings-page Sync buttons) and a data-based one that just loads
+already-fetched rows/matches (`sync_deals_from_values`,
+`sync_slack_notes_from_matches`). The latter is what powers "hey Claude,
+sync deals" requests, since the user hasn't set up a service account or
+Slack App for this project — this is the primary path, not a fallback.
+
+When asked to sync, in a live Claude Code session:
+1. Fetch the sheet (`get_all_values()`-shaped grid) or Slack search results
+   using the connected Google Sheets / Slack MCP tools.
+2. Write a temp JSON payload matching `mcp_ingest.py`'s docstring shape to
+   `_mcp_payload_<kind>.json` in the project root (already gitignored).
+3. Run `py mcp_ingest.py deals <file>` or `py mcp_ingest.py slack <file>`.
+4. Delete the temp file afterward.
+
+For Slack, `se_rep_id` must be resolved from `se_reps` first (by
+`slack_user_id` or name) — look it up via `GET /api/reps` or a direct query,
+don't guess it.
+
 ## Git workflow
 
-Push to GitHub only — `git push origin master`. Do NOT sync this repo into
-a local Desktop folder. GitHub is the single source of truth.
+**No GitHub for now** — work stays local only. Local `git commit` is fine;
+do not create a remote repo or run `git push` unless the user explicitly
+says otherwise.
 
 ## Docs
 
@@ -44,6 +67,7 @@ chunks with a visible task list.
 | `db.py` | SQLite schema + thread-local connections |
 | `sheets_sync.py` | Google Sheets → `deals` table |
 | `slack_sync.py` | Slack `search.messages` → `slack_notes` table |
+| `mcp_ingest.py` | CLI bridge — loads MCP-fetched JSON into the DB, no credentials needed |
 | `reviews.py` | LiteLLM-backed review drafting |
 | `static/style.css` | Okta dark theme (shared tokens with NaughtRFP) |
 | `static/app.js` | SPA frontend — router, API helper, page renderers |

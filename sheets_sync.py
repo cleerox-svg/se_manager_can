@@ -83,10 +83,10 @@ def _is_skip_row(cells: dict) -> bool:
     return any(marker in joined for marker in _SKIP_MARKERS)
 
 
-def fetch_rows(service_account_json_path: str, sheet_id: str, worksheet_index: int = 0) -> list[dict]:
-    """Read the sheet and return one normalized dict per real opportunity row."""
-    ws = _client(service_account_json_path).open_by_key(sheet_id).get_worksheet(worksheet_index)
-    values = ws.get_all_values()
+def _normalize_values(values: list[list[str]]) -> list[dict]:
+    """Turn a raw sheet grid (header row + data rows, e.g. `get_all_values()`
+    or an MCP-fetched equivalent) into one normalized dict per real
+    opportunity row."""
     if not values:
         return []
 
@@ -100,7 +100,7 @@ def fetch_rows(service_account_json_path: str, sheet_id: str, worksheet_index: i
         cells = {}
         for key, val in zip(col_keys, raw_row):
             if key:
-                cells[key] = val.strip()
+                cells[key] = (val or "").strip()
 
         for group_col in ("lead_se", "stage"):
             if cells.get(group_col):
@@ -118,9 +118,14 @@ def fetch_rows(service_account_json_path: str, sheet_id: str, worksheet_index: i
     return rows
 
 
-def sync_deals(db, service_account_json_path: str, sheet_id: str, worksheet_index: int = 0) -> dict:
-    rows = fetch_rows(service_account_json_path, sheet_id, worksheet_index)
+def fetch_rows(service_account_json_path: str, sheet_id: str, worksheet_index: int = 0) -> list[dict]:
+    """Read the sheet via a service account and return normalized rows."""
+    ws = _client(service_account_json_path).open_by_key(sheet_id).get_worksheet(worksheet_index)
+    return _normalize_values(ws.get_all_values())
 
+
+def load_rows(db, rows: list[dict]) -> dict:
+    """Upsert already-normalized rows into the `deals` table."""
     se_rep_ids: dict[str, int] = {}
     with db.conn() as c:
         for row in c.execute("SELECT id, name FROM se_reps"):
@@ -169,3 +174,14 @@ def sync_deals(db, service_account_json_path: str, sheet_id: str, worksheet_inde
 
     db.set_setting("deals_last_synced_at", datetime.now().isoformat())
     return {"synced": len(rows)}
+
+
+def sync_deals(db, service_account_json_path: str, sheet_id: str, worksheet_index: int = 0) -> dict:
+    """Credential-based path: read the sheet with a service account, then load."""
+    return load_rows(db, fetch_rows(service_account_json_path, sheet_id, worksheet_index))
+
+
+def sync_deals_from_values(db, values: list[list[str]]) -> dict:
+    """MCP-assisted path: caller already fetched the raw grid (e.g. via the
+    Google Sheets MCP tool) — normalize and load it, no service account needed."""
+    return load_rows(db, _normalize_values(values))
