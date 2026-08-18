@@ -48,6 +48,33 @@ For Slack, `se_rep_id` must be resolved from `se_reps` first (by
 `slack_user_id` or name) — look it up via `GET /api/reps` or a direct query,
 don't guess it.
 
+Slack search queries must use literal `<` `>` characters around user
+mentions (`from:<@U09TPQER3AN> after:2026-05-13`) — passing HTML-escaped
+entities (`&lt;@U...&gt;`) sends the literal escaped string to Slack's
+search backend and silently returns zero results instead of erroring, which
+reads as "this rep has no Slack activity" when they actually do. If a sync
+comes back empty for every rep, suspect this before concluding there's no
+data. Each search also caps at ~20 results per page with a pagination
+cursor (`pagination_info`) — for reps with heavy channel activity, one page
+may not cover the full lookback window.
+
+The Team Tracking Sheet's grouped layout has two more quirks beyond the
+forward-fill already described in `sheets_sync.py`'s module docstring:
+group-header cells read like `Nic Da Silva (9)` / `2 - Discovery (3)` — a
+live row count appended to the name/stage, not part of it — and the
+*per-lead* subtotal row (unlike the per-stage one) puts the literal word
+`Subtotal` in the Lead SE column itself. Both are handled by
+`_strip_group_count`; if a future column gets added to the grouped layout,
+check whether it needs the same treatment before trusting a raw sync.
+
+In a fresh Bash-tool session (no venv activation), `py`/`python` resolve to
+the global interpreter, not this project's venv — `py mcp_ingest.py ...`
+fails with `ModuleNotFoundError: No module named 'gspread'` even though
+`requirements.txt` is fully installed in `venv/`. Use
+`venv/Scripts/python.exe <script>` directly instead of `py <script>` when
+running ingest/sync scripts from Claude Code, rather than assuming the venv
+is on PATH.
+
 ## Git workflow
 
 **No GitHub for now** — work stays local only. Local `git commit` is fine;

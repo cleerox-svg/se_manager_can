@@ -33,6 +33,36 @@ _HEADER_MAP = {
 
 _SKIP_MARKERS = ("subtotal", "total")
 
+_GROUP_COUNT_RE = re.compile(r"\s*\(\d+\)\s*$")
+
+
+def _strip_group_count(raw: str) -> str:
+    """The sheet's group-header cells read like 'Nic Da Silva (9)' or
+    '2 - Discovery (3)' — a live count of rows in that group, not part of
+    the name/stage itself. Strip it so lead_se/stage match `se_reps.name`
+    and display cleanly. The unassigned-lead marker '-' collapses to ''
+    so it flows into the existing 'Unassigned' fallback in load_rows.
+
+    The sheet's *per-lead* subtotal row (unlike per-stage subtotal rows)
+    puts the literal word 'Subtotal' in the Lead SE column itself, not
+    just the Stage column. If that's forward-filled like a real value, it
+    poisons every row in the next group — whose opportunity names then
+    contain 'subtotal' as a substring — until `_is_skip_row` drops them
+    all. Return '' (not forward-filled — see caller) so it never enters
+    `fill`.
+
+    '-' is a real, distinct group ("no lead assigned") — mapped to
+    'Unassigned' (truthy) rather than '' so it forward-fills like any
+    other group name instead of silently inheriting whichever lead
+    happened to precede it.
+    """
+    stripped = _GROUP_COUNT_RE.sub("", raw).strip()
+    if stripped.lower() in _SKIP_MARKERS:
+        return ""
+    if stripped == "-":
+        return "Unassigned"
+    return stripped
+
 
 def _client(service_account_json_path: str) -> gspread.Client:
     creds = Credentials.from_service_account_file(service_account_json_path, scopes=_SCOPES)
@@ -100,7 +130,10 @@ def _normalize_values(values: list[list[str]]) -> list[dict]:
         cells = {}
         for key, val in zip(col_keys, raw_row):
             if key:
-                cells[key] = (val or "").strip()
+                val = (val or "").strip()
+                if key in ("lead_se", "stage"):
+                    val = _strip_group_count(val)
+                cells[key] = val
 
         for group_col in ("lead_se", "stage"):
             if cells.get(group_col):
