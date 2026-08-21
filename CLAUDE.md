@@ -41,8 +41,24 @@ When asked to sync, in a live Claude Code session:
    using the connected Google Sheets / Slack MCP tools.
 2. Write a temp JSON payload matching `mcp_ingest.py`'s docstring shape to
    `_mcp_payload_<kind>.json` in the project root (already gitignored).
-3. Run `py mcp_ingest.py deals <file>` or `py mcp_ingest.py slack <file>`.
+3. Run `py mcp_ingest.py deals <file>`, `py mcp_ingest.py closed_deals <file>`,
+   or `py mcp_ingest.py slack <file>`.
 4. Delete the temp file afterward.
+
+The Team Tracking Sheet has three tabs, not one: "SFDC" (open pipeline →
+`deals`, the default/first sheet), "Clari" (not wired up), and "Sheet3"
+(closed-won export → `closed_deals`, one row per closed opportunity,
+`tech_win` flag set when Presales Stage is `'6 - Technical Win'`). The
+Google Drive content-export tool (`google_drive-get_drive_file_content`)
+only returns the default/first sheet as CSV — it cannot target a tab by
+name. To read a specific tab, authenticate and use the dedicated
+`mcp__google_sheets__*` tools instead: `get_spreadsheet_info` to confirm
+the tab name/gid, then `read_sheet_values` with an explicit
+`TabName!A1:Z1000`-style range. `closed_deals_sync.py` normalizes Sheet3's
+grid the same way `sheets_sync.py` does for SFDC, except the group-header
+suffix is a running dollar total (`"Sean Keleher (USD 1,095,169.27)"`) not
+a row count, so it has its own strip regex rather than reusing
+`_strip_group_count`.
 
 For Slack, `se_rep_id` must be resolved from `se_reps` first (by
 `slack_user_id` or name) — look it up via `GET /api/reps` or a direct query,
@@ -92,7 +108,8 @@ chunks with a visible task list.
 |---|---|
 | `app.py` | Flask routes |
 | `db.py` | SQLite schema + thread-local connections |
-| `sheets_sync.py` | Google Sheets → `deals` table |
+| `sheets_sync.py` | Google Sheets "SFDC" tab → `deals` table |
+| `closed_deals_sync.py` | Google Sheets "Sheet3" tab (closed-won/technical-win export) → `closed_deals` table |
 | `slack_sync.py` | Slack `search.messages` → `slack_notes` table |
 | `mcp_ingest.py` | CLI bridge — loads MCP-fetched JSON into the DB, no credentials needed |
 | `reviews.py` | LiteLLM-backed review drafting |
