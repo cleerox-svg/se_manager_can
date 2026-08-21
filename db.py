@@ -90,6 +90,18 @@ class Database:
                     UNIQUE(se_rep_id, message_ts, channel_id)
                 );
 
+                CREATE TABLE IF NOT EXISTS closed_deals (
+                    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                    sheet_key        TEXT UNIQUE,
+                    rep_name         TEXT,
+                    se_rep_id        INTEGER REFERENCES se_reps(id) ON DELETE SET NULL,
+                    opportunity_name TEXT,
+                    amount           REAL,
+                    close_date       TEXT,
+                    tech_win         INTEGER DEFAULT 0,
+                    last_synced_at   TEXT DEFAULT (datetime('now'))
+                );
+
                 CREATE TABLE IF NOT EXISTS reviews (
                     id         INTEGER PRIMARY KEY AUTOINCREMENT,
                     se_rep_id  INTEGER REFERENCES se_reps(id) ON DELETE CASCADE,
@@ -104,6 +116,7 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_deals_se_rep ON deals(se_rep_id);
                 CREATE INDEX IF NOT EXISTS idx_deals_quarter ON deals(quarter);
                 CREATE INDEX IF NOT EXISTS idx_slack_notes_se_rep ON slack_notes(se_rep_id);
+                CREATE INDEX IF NOT EXISTS idx_closed_deals_se_rep ON closed_deals(se_rep_id);
             """)
 
     def get_setting(self, key: str, default=None):

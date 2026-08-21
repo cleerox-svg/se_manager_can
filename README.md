@@ -44,7 +44,14 @@ Data gets in via one of two paths — see [SETUP.md](SETUP.md):
 ## Data model
 
 - `se_reps` — roster, Slack user ID, active/inactive flag.
-- `deals` — synced from the Team Tracking Sheet, one row per opportunity.
+- `deals` — synced from the Team Tracking Sheet's "SFDC" tab, one row per
+  open opportunity.
+- `closed_deals` — synced from the Team Tracking Sheet's "Sheet3" tab
+  (closed-won export), one row per closed opportunity, flagged `tech_win`
+  when Presales Stage is "6 - Technical Win". Loaded the same MCP-assisted
+  way as `deals` (`py mcp_ingest.py closed_deals <json_file>`), and folded
+  into `reviews.py`'s LLM context so future generated drafts lead with real
+  closed-deal/technical-win evidence.
 - `slack_notes` — synced from Slack search per rep.
 - `reviews` — drafted/edited review content, one row per (rep, period).
 

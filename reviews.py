@@ -35,8 +35,9 @@ thin evidence, keep it short rather than padding it with generic statements.
 in the conversation.
 
 Section-specific guidance:
-- High-impact wins: look for concrete delivered work and, especially, moments that show \
-Okta's Door 2 Culture in action (not just deals closed).
+- High-impact wins: lead with closed-won deals and technical wins (amounts, deal names) as \
+concrete evidence of impact, then layer in other delivered work and, especially, moments \
+that show Okta's Door 2 Culture in action.
 - Areas for improvement & alignment: candidly flag friction points or blockers, and note \
 where H2 priorities should be established. Tie course-correction language to Okta \
 Principles (challenging the status quo, overcoming hurdles, empowering each other) rather \
@@ -68,9 +69,23 @@ def _build_context(db, se_rep_id: int) -> str:
             "SELECT * FROM slack_notes WHERE se_rep_id = ? ORDER BY posted_at DESC LIMIT 60",
             (se_rep_id,),
         ).fetchall()
+        closed = c.execute(
+            "SELECT * FROM closed_deals WHERE se_rep_id = ? ORDER BY amount DESC", (se_rep_id,)
+        ).fetchall()
 
     lines = [f"SE: {rep['name']}", ""]
 
+    tech_wins = sum(1 for d in closed if d["tech_win"])
+    total_amount = sum(d["amount"] or 0 for d in closed)
+    lines.append(
+        f"Closed-won deals this period ({len(closed)}, {tech_wins} technical wins, "
+        f"${total_amount:,.2f} total):"
+    )
+    for d in closed:
+        win_flag = " [TECHNICAL WIN]" if d["tech_win"] else ""
+        lines.append(f"- {d['opportunity_name']} | closed={d['close_date']} | amount=${d['amount']:,.2f}{win_flag}")
+
+    lines.append("")
     lines.append(f"Open deals ({len(deals)}):")
     for d in deals:
         flags = []

@@ -11,6 +11,11 @@ Usage:
         (the raw sheet grid: header row + data rows, same shape as
         gspread's get_all_values())
 
+    py mcp_ingest.py closed_deals <json_file>
+        {"values": [["Team Member Name", ..., "Opportunity Name", ..., "Amount (converted)",
+                      ..., "Close Date", "Presales Stage"], ["Sean Keleher (USD ...)", ...], ...]}
+        (the raw "Sheet3" grid from the Team Tracking Sheet)
+
     py mcp_ingest.py slack <json_file>
         {"se_rep_id": 5, "matches": [
             {"ts": "1712345678.000200", "channel_id": "C123", "channel_name": "team-se",
@@ -24,12 +29,13 @@ import os
 import sys
 
 from db import Database
+import closed_deals_sync
 import sheets_sync
 import slack_sync
 
 
 def main():
-    if len(sys.argv) != 3 or sys.argv[1] not in ("deals", "slack"):
+    if len(sys.argv) != 3 or sys.argv[1] not in ("deals", "closed_deals", "slack"):
         print(__doc__)
         sys.exit(1)
 
@@ -42,6 +48,8 @@ def main():
 
     if kind == "deals":
         result = sheets_sync.sync_deals_from_values(db, payload["values"])
+    elif kind == "closed_deals":
+        result = closed_deals_sync.sync_closed_deals_from_values(db, payload["values"])
     else:
         result = slack_sync.sync_slack_notes_from_matches(db, payload["se_rep_id"], payload["matches"])
 
