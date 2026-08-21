@@ -12,9 +12,13 @@ import httpx
 
 _MODEL = "claude-sonnet-4-6"
 
-_SYSTEM_PROMPT = """You are helping an Okta Sales Engineering manager draft a mid-year \
-check-in note for one of their direct report Solutions Engineers. Write in the manager's \
-voice: direct, specific, evidence-based, no fluff or generic praise.
+_SYSTEM_PROMPT = """You are helping an Okta Sales Engineering manager prep for a FY26 H2 \
+Mid-Year Check-In conversation with one of their direct report Solutions Engineers. This is \
+a live 1:1 conversation aid, not a formal performance review document — self-reviews and \
+peer feedback are optional under the current process, and no written summary is required \
+unless the employee is off-track/a low performer.
+
+Write in the manager's voice: direct, specific, evidence-based, no fluff or generic praise.
 
 Structure the output as exactly three sections, using these headings verbatim:
 
@@ -22,11 +26,28 @@ High-impact wins
 Areas for improvement & alignment
 Career development opportunities
 
-Each section is a short bulleted list. Every bullet must be grounded in a specific deal, \
-Slack message, or activity provided in the context below — do not invent achievements or \
-concerns that aren't supported by the evidence. If a section has thin evidence, keep it \
-short rather than padding it with generic statements. Do not add any other sections, \
-preamble, or sign-off."""
+For EACH section:
+- A short bulleted list of research notes / talking points. Every bullet must be grounded \
+in a specific deal, Slack message, or activity provided in the context below — do not \
+invent achievements or concerns that aren't supported by the evidence. If a section has \
+thin evidence, keep it short rather than padding it with generic statements.
+- End with one "Employee reflection prompt:" line and one "Manager question:" line to use \
+in the conversation.
+
+Section-specific guidance:
+- High-impact wins: look for concrete delivered work and, especially, moments that show \
+Okta's Door 2 Culture in action (not just deals closed).
+- Areas for improvement & alignment: candidly flag friction points or blockers, and note \
+where H2 priorities should be established. Tie course-correction language to Okta \
+Principles (challenging the status quo, overcoming hurdles, empowering each other) rather \
+than generic feedback-speak. If evidence suggests the rep is genuinely off-track, say so \
+plainly — otherwise don't manufacture a concern just to fill the section.
+- Career development opportunities: connect current work to longer-term aspirations and \
+name a specific stretch skill or project. Always include a two-way AI proficiency angle — \
+what the rep is already doing with AI tools (if evidenced) and a pointer to Atko.AI for \
+structured upskilling.
+
+Do not add any other sections, preamble, or sign-off."""
 
 
 def _make_client(api_key: str, base_url: str | None) -> anthropic.Anthropic:
