@@ -102,6 +102,30 @@ class Database:
                     last_synced_at   TEXT DEFAULT (datetime('now'))
                 );
 
+                CREATE TABLE IF NOT EXISTS tech_forecast_deals (
+                    id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+                    sheet_key                TEXT UNIQUE,
+                    opportunity_name         TEXT,
+                    amount                   REAL,
+                    presales_stage           TEXT,
+                    forecast_status          TEXT,
+                    sales_stage              TEXT,
+                    deal_type                TEXT,
+                    account_region           TEXT,
+                    geo_seg                  TEXT,
+                    sales_segment            TEXT,
+                    sales_geo                TEXT,
+                    close_date               TEXT,
+                    technical_win_date       TEXT,
+                    opportunity_owner        TEXT,
+                    opportunity_owner_manager TEXT,
+                    se_manager_notes         TEXT,
+                    pre_sales_notes          TEXT,
+                    notes_prev_sync          TEXT,
+                    notes_stale              INTEGER DEFAULT 0,
+                    last_synced_at           TEXT DEFAULT (datetime('now'))
+                );
+
                 CREATE TABLE IF NOT EXISTS reviews (
                     id         INTEGER PRIMARY KEY AUTOINCREMENT,
                     se_rep_id  INTEGER REFERENCES se_reps(id) ON DELETE CASCADE,

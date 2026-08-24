@@ -37,6 +37,7 @@ function navigate(page, data = null) {
 
   if (page === 'dashboard') renderDashboard();
   if (page === 'team') renderTeam();
+  if (page === 'tech-forecast') renderTechForecast();
   if (page === 'settings') renderSettings();
   if (page === 'person' && data) renderPerson(data);
 }
@@ -154,6 +155,128 @@ async function toggleRepActive(repId, active) {
   await API.post(`/api/reps/${repId}`, { active });
   toast('Updated', 'success');
   renderTeam();
+}
+
+/* ── Technical Forecast ──────────────────────────────────────────────────── */
+function truncate(text, n) {
+  if (!text) return '';
+  const flat = text.replace(/[\r\n]+/g, ' ').trim();
+  return flat.length > n ? flat.slice(0, n) + '…' : flat;
+}
+
+function presalesStageBadge(stage) {
+  const cls = stage === '6 - Technical Win' ? 'badge-green' : 'badge-blue';
+  return `<span class="badge ${cls}">${stage || '-'}</span>`;
+}
+
+function forecastStatusBadge(status) {
+  const map = { Strong: 'badge-green', Forecasted: 'badge-blue', 'Forecasted Risk': 'badge-red' };
+  return `<span class="badge ${map[status] || 'badge-muted'}">${status || '-'}</span>`;
+}
+
+function dealFlags(d, threshold) {
+  return `
+    ${d.amount >= threshold ? '<span class="badge badge-purple">Must-Win</span>' : ''}
+    ${d.notes_stale ? '<span class="badge badge-amber">No update this week</span>' : ''}
+  `;
+}
+
+async function renderTechForecast() {
+  const data = await API.get('/api/tech-forecast');
+  const threshold = data.must_win_threshold;
+  const deals = data.deals;
+
+  const totalArr = deals.reduce((sum, d) => sum + (d.amount || 0), 0);
+  const mustWins = deals.filter(d => d.amount >= threshold);
+  const riskDeals = deals.filter(d => d.forecast_status === 'Forecasted Risk');
+  const staleDeals = deals.filter(d => d.notes_stale);
+  const inspectDeals = deals.filter(d => d.presales_stage !== '6 - Technical Win');
+  const wrapUpDeals = deals
+    .filter(d => d.presales_stage !== '6 - Technical Win' && (d.forecast_status === 'Forecasted Risk' || d.notes_stale))
+    .sort((a, b) => (b.amount >= threshold) - (a.amount >= threshold) || b.amount - a.amount);
+
+  const el = document.getElementById('tech-forecast-content');
+  el.innerHTML = `
+    <div class="section-header">
+      <div>
+        <h2>Technical Forecast</h2>
+        <div class="sub" style="color:var(--text-secondary);font-size:.78rem">
+          Last synced: ${data.last_synced_at ? new Date(data.last_synced_at).toLocaleString() : 'never'} — Presales Technical Win Process
+        </div>
+      </div>
+      <button class="btn btn-primary" id="present-mode-btn">&#128225; Present mode</button>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat-card"><div class="stat-value">${fmtMoney(totalArr)}</div><div class="stat-label">Total Tech Forecast ARR</div></div>
+      <div class="stat-card"><div class="stat-value">${mustWins.length}</div><div class="stat-label">Must-Wins ($150K+) — ${fmtMoney(mustWins.reduce((s, d) => s + (d.amount || 0), 0))}</div></div>
+      <div class="stat-card"><div class="stat-value">${riskDeals.length}</div><div class="stat-label">Forecasted Risk</div></div>
+      <div class="stat-card"><div class="stat-value">${staleDeals.length}</div><div class="stat-label">No update this week</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Look Back — Recent Technical Wins</div>
+      ${data.recent_wins.length ? `
+        <table>
+          <thead><tr><th>Opportunity</th><th>Rep / Owner</th><th>Win date</th><th>Amount</th><th>Status</th></tr></thead>
+          <tbody>
+            ${data.recent_wins.map(w => `
+              <tr>
+                <td>${w.opportunity_name}</td>
+                <td>${w.rep_name || w.opportunity_owner || '-'}</td>
+                <td>${w.win_date || '-'}</td>
+                <td>${fmtMoney(w.amount)}</td>
+                <td><span class="badge ${w.source === 'closed' ? 'badge-green' : 'badge-blue'}">${w.source === 'closed' ? 'Closed win' : 'Tech win (open)'}</span></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      ` : '<div class="empty-state">No recent wins on file</div>'}
+    </div>
+
+    <div class="card">
+      <div class="card-title">Look Forward &amp; Inspect — Open Technical Pipeline (${inspectDeals.length})</div>
+      ${inspectDeals.length ? `
+        <table>
+          <thead><tr><th>Opportunity</th><th>Presales Stage</th><th>Forecast Status</th><th>Tech win date</th><th>Amount</th><th>Flags</th><th>Pre-sales next steps</th></tr></thead>
+          <tbody>
+            ${inspectDeals.map(d => `
+              <tr>
+                <td>${d.opportunity_name}<div style="color:var(--text-muted);font-size:.72rem">${d.opportunity_owner || ''}</div></td>
+                <td>${presalesStageBadge(d.presales_stage)}</td>
+                <td>${forecastStatusBadge(d.forecast_status)}</td>
+                <td>${d.technical_win_date || '-'}</td>
+                <td>${fmtMoney(d.amount)}</td>
+                <td class="pill-row">${dealFlags(d, threshold)}</td>
+                <td title="${(d.pre_sales_notes || '').replace(/"/g, '&quot;')}" style="max-width:260px;font-size:.78rem;color:var(--text-secondary)">${truncate(d.pre_sales_notes, 90) || '-'}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      ` : '<div class="empty-state">No open technical pipeline synced yet</div>'}
+    </div>
+
+    <div class="card">
+      <div class="card-title">Wrap-Up &amp; Risk (${wrapUpDeals.length})</div>
+      ${wrapUpDeals.length ? `
+        <table>
+          <thead><tr><th>Opportunity</th><th>Forecast Status</th><th>Amount</th><th>Flags</th></tr></thead>
+          <tbody>
+            ${wrapUpDeals.map(d => `
+              <tr>
+                <td>${d.opportunity_name}</td>
+                <td>${forecastStatusBadge(d.forecast_status)}</td>
+                <td>${fmtMoney(d.amount)}</td>
+                <td class="pill-row">${dealFlags(d, threshold)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      ` : '<div class="empty-state">Nothing at risk right now</div>'}
+    </div>
+  `;
+
+  document.getElementById('present-mode-btn').onclick = () => document.body.classList.add('present-mode');
 }
 
 /* ── Person detail ──────────────────────────────────────────────────────── */

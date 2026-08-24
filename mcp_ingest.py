@@ -16,6 +16,12 @@ Usage:
                       ..., "Close Date", "Presales Stage"], ["Sean Keleher (USD ...)", ...], ...]}
         (the raw "Sheet3" grid from the Team Tracking Sheet)
 
+    py mcp_ingest.py tech_forecast <json_file>
+        {"values": [["Account Owner AVP Region", "Presales Stage", "Deal Forecast Status",
+                      "Amount (converted)", "Opportunity Name", ..., "Technical Win Date", ...],
+                     ["AMER CAN (11)", "2 - Discovery & Technical Qualification (1)", "Strong (1)", ...], ...]}
+        (the raw "Sheet4" grid from the Team Tracking Sheet)
+
     py mcp_ingest.py slack <json_file>
         {"se_rep_id": 5, "matches": [
             {"ts": "1712345678.000200", "channel_id": "C123", "channel_name": "team-se",
@@ -32,10 +38,11 @@ from db import Database
 import closed_deals_sync
 import sheets_sync
 import slack_sync
+import tech_forecast_sync
 
 
 def main():
-    if len(sys.argv) != 3 or sys.argv[1] not in ("deals", "closed_deals", "slack"):
+    if len(sys.argv) != 3 or sys.argv[1] not in ("deals", "closed_deals", "tech_forecast", "slack"):
         print(__doc__)
         sys.exit(1)
 
@@ -50,6 +57,8 @@ def main():
         result = sheets_sync.sync_deals_from_values(db, payload["values"])
     elif kind == "closed_deals":
         result = closed_deals_sync.sync_closed_deals_from_values(db, payload["values"])
+    elif kind == "tech_forecast":
+        result = tech_forecast_sync.sync_tech_forecast_from_values(db, payload["values"])
     else:
         result = slack_sync.sync_slack_notes_from_matches(db, payload["se_rep_id"], payload["matches"])
 

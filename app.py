@@ -128,6 +128,33 @@ def list_deals():
     })
 
 
+# ── Technical Forecast ──────────────────────────────────────────────────
+MUST_WIN_THRESHOLD = 150000
+
+
+@app.route("/api/tech-forecast")
+def tech_forecast():
+    with db.conn() as c:
+        deals = c.execute("SELECT * FROM tech_forecast_deals ORDER BY amount DESC").fetchall()
+        closed_wins = c.execute(
+            "SELECT * FROM closed_deals WHERE tech_win = 1 ORDER BY close_date DESC LIMIT 15"
+        ).fetchall()
+
+    recent_wins = [dict(r) | {"source": "closed", "win_date": r["close_date"]} for r in closed_wins]
+    recent_wins += [
+        dict(r) | {"source": "open", "win_date": r["technical_win_date"] or r["close_date"]}
+        for r in deals if r["presales_stage"] == "6 - Technical Win"
+    ]
+    recent_wins.sort(key=lambda r: r.get("win_date") or "", reverse=True)
+
+    return jsonify({
+        "deals": [dict(r) for r in deals],
+        "recent_wins": recent_wins[:12],
+        "must_win_threshold": MUST_WIN_THRESHOLD,
+        "last_synced_at": db.get_setting("tech_forecast_last_synced_at"),
+    })
+
+
 # ── Sync ─────────────────────────────────────────────────────────────────
 @app.route("/api/sync/sheets", methods=["POST"])
 def sync_sheets():

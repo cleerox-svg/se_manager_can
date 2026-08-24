@@ -23,6 +23,9 @@
     <button class="sidebar-btn" data-page="team" onclick="navigate('team')">
       <span class="sidebar-icon">&#128101;</span> Team
     </button>
+    <button class="sidebar-btn" data-page="tech-forecast" onclick="navigate('tech-forecast')">
+      <span class="sidebar-icon">&#127919;</span> Technical Forecast
+    </button>
     <button class="sidebar-btn" data-page="settings" onclick="navigate('settings')">
       <span class="sidebar-icon">&#9881;</span> Settings
     </button>
@@ -49,6 +52,11 @@
 
   <div class="page" id="page-person">
     <div id="person-content"><div class="empty-state">Loading...</div></div>
+  </div>
+
+  <div class="page" id="page-tech-forecast">
+    <button class="present-exit-btn" onclick="document.body.classList.remove('present-mode')">&#10005; Exit present mode</button>
+    <div id="tech-forecast-content"><div class="empty-state">Loading...</div></div>
   </div>
 
   <div class="page" id="page-settings">

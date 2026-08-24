@@ -45,20 +45,35 @@ When asked to sync, in a live Claude Code session:
    or `py mcp_ingest.py slack <file>`.
 4. Delete the temp file afterward.
 
-The Team Tracking Sheet has three tabs, not one: "SFDC" (open pipeline →
-`deals`, the default/first sheet), "Clari" (not wired up), and "Sheet3"
+The Team Tracking Sheet has four tabs, not one: "SFDC" (open pipeline →
+`deals`, the default/first sheet), "Clari" (not wired up), "Sheet3"
 (closed-won export → `closed_deals`, one row per closed opportunity,
-`tech_win` flag set when Presales Stage is `'6 - Technical Win'`). The
-Google Drive content-export tool (`google_drive-get_drive_file_content`)
-only returns the default/first sheet as CSV — it cannot target a tab by
-name. To read a specific tab, authenticate and use the dedicated
-`mcp__google_sheets__*` tools instead: `get_spreadsheet_info` to confirm
-the tab name/gid, then `read_sheet_values` with an explicit
-`TabName!A1:Z1000`-style range. `closed_deals_sync.py` normalizes Sheet3's
-grid the same way `sheets_sync.py` does for SFDC, except the group-header
-suffix is a running dollar total (`"Sean Keleher (USD 1,095,169.27)"`) not
-a row count, so it has its own strip regex rather than reusing
+`tech_win` flag set when Presales Stage is `'6 - Technical Win'`), and
+"Sheet4" (Technical Forecast pipeline → `tech_forecast_deals`, added by the
+user specifically to power the Technical Forecast page). The Google Drive
+content-export tool (`google_drive-get_drive_file_content`) only returns
+the default/first sheet as CSV — it cannot target a tab by name. To read a
+specific tab, authenticate and use the dedicated `mcp__google_sheets__*`
+tools instead: `get_spreadsheet_info` to confirm the tab name/gid, then
+`read_sheet_values` with an explicit `TabName!A1:Z1000`-style range.
+`closed_deals_sync.py` normalizes Sheet3's grid the same way
+`sheets_sync.py` does for SFDC, except the group-header suffix is a
+running dollar total (`"Sean Keleher (USD 1,095,169.27)"`) not a row
+count, so it has its own strip regex rather than reusing
 `_strip_group_count`.
+
+Sheet4 is nested one level deeper than SFDC/Sheet3: group-header rows run
+Account Owner AVP Region > Presales Stage > Deal Forecast Status, each
+carrying a `(<count>)` suffix, before the individual deal rows.
+`tech_forecast_sync.py` forward-fills all three levels and resets the
+`forecast_status` fill whenever `presales_stage` changes (a new stage
+group always starts a fresh status group). Unlike SFDC/Sheet3, every
+subtotal/group-header row here is reliably identifiable by a blank
+Opportunity Name column, so there's no need for a marker-string check —
+confirmed against the live 23-row grid before writing the skip logic.
+Staleness is snapshot-diff based, not date-parsed: each sync compares the
+incoming pre-sales notes text against the value stored from the *previous*
+sync and sets `notes_stale` on the row if unchanged.
 
 For Slack, `se_rep_id` must be resolved from `se_reps` first (by
 `slack_user_id` or name) — look it up via `GET /api/reps` or a direct query,
@@ -110,6 +125,7 @@ chunks with a visible task list.
 | `db.py` | SQLite schema + thread-local connections |
 | `sheets_sync.py` | Google Sheets "SFDC" tab → `deals` table |
 | `closed_deals_sync.py` | Google Sheets "Sheet3" tab (closed-won/technical-win export) → `closed_deals` table |
+| `tech_forecast_sync.py` | Google Sheets "Sheet4" tab (Technical Forecast pipeline) → `tech_forecast_deals` table |
 | `slack_sync.py` | Slack `search.messages` → `slack_notes` table |
 | `mcp_ingest.py` | CLI bridge — loads MCP-fetched JSON into the DB, no credentials needed |
 | `reviews.py` | LiteLLM-backed review drafting |

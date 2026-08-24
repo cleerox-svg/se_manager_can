@@ -185,4 +185,17 @@ textarea { width: 100%; min-height: 320px; line-height: 1.5; resize: vertical; }
 .tab-btn.active { color: var(--okta-blue-lt); border-bottom-color: var(--okta-blue); }
 .inactive-flag { opacity: .55; }
 .slack-note { padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 8px; font-size: .82rem; background: var(--bg-card); }
+
+/* ── Present mode ────────────────────────────────────────────────────────── */
+.present-exit-btn { display: none; }
+body.present-mode #sidebar { display: none; }
+body.present-mode #app { margin-left: 0; }
+body.present-mode .topbar { display: none; }
+body.present-mode .present-exit-btn {
+  display: inline-flex; position: fixed; top: 14px; right: 20px; z-index: 200;
+  padding: 8px 14px; border-radius: var(--radius); font-size: .78rem; font-weight: 600;
+  border: 1px solid var(--border); background: var(--bg-modal); color: var(--text-secondary); cursor: pointer;
+}
+body.present-mode .present-exit-btn:hover { color: var(--text-primary); border-color: var(--border-active); }
+body.present-mode .page { padding-top: 50px; }
 .slack-note .meta { font-size: .68rem; color: var(--text-muted); margin-bottom: 4px; }
