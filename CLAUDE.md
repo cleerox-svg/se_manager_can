@@ -45,16 +45,21 @@ When asked to sync, in a live Claude Code session:
    or `py mcp_ingest.py slack <file>`.
 4. Delete the temp file afterward.
 
-The Team Tracking Sheet has four tabs, not one: "SFDC" (open pipeline →
-`deals`, the default/first sheet), "Clari" (not wired up), "Sheet3"
-(closed-won export → `closed_deals`, one row per closed opportunity,
-`tech_win` flag set when Presales Stage is `'6 - Technical Win'`), and
-"Sheet4" (Technical Forecast pipeline → `tech_forecast_deals`, added by the
-user specifically to power the Technical Forecast page). The Google Drive
-content-export tool (`google_drive-get_drive_file_content`) only returns
-the default/first sheet as CSV — it cannot target a tab by name. To read a
-specific tab, authenticate and use the dedicated `mcp__google_sheets__*`
-tools instead: `get_spreadsheet_info` to confirm the tab name/gid, then
+The Team Tracking Sheet's tabs get renamed by the user from time to time —
+don't trust hardcoded tab names in this file, always confirm live via
+`get_spreadsheet_info` (which lists by stable `gid`) before a sync. As of
+2026-08-24 there are three tabs (the "Clari" tab that used to exist is
+gone): "Lead SE Pipeline SFDC" (gid `0`, open pipeline → `deals` — formerly
+called "SFDC"), "Canada SE Closed This Fiscal Year" (gid `1875218606`,
+closed-won export → `closed_deals`, one row per closed opportunity,
+`tech_win` flag set when Presales Stage is `'6 - Technical Win'` —
+formerly "Sheet3"), and "Satish Technical Forecast Current Q" (gid
+`931673469`, Technical Forecast pipeline → `tech_forecast_deals` —
+formerly "Sheet4"). The Google Drive content-export tool
+(`google_drive-get_drive_file_content`) only returns the default/first
+sheet as CSV — it cannot target a tab by name. To read a specific tab,
+authenticate and use the dedicated `mcp__google_sheets__*` tools instead:
+`get_spreadsheet_info` to confirm the current tab name/gid, then
 `read_sheet_values` with an explicit `TabName!A1:Z1000`-style range.
 `closed_deals_sync.py` normalizes Sheet3's grid the same way
 `sheets_sync.py` does for SFDC, except the group-header suffix is a
@@ -123,9 +128,9 @@ chunks with a visible task list.
 |---|---|
 | `app.py` | Flask routes |
 | `db.py` | SQLite schema + thread-local connections |
-| `sheets_sync.py` | Google Sheets "SFDC" tab → `deals` table |
-| `closed_deals_sync.py` | Google Sheets "Sheet3" tab (closed-won/technical-win export) → `closed_deals` table |
-| `tech_forecast_sync.py` | Google Sheets "Sheet4" tab (Technical Forecast pipeline) → `tech_forecast_deals` table |
+| `sheets_sync.py` | Google Sheets "Lead SE Pipeline SFDC" tab → `deals` table |
+| `closed_deals_sync.py` | Google Sheets "Canada SE Closed This Fiscal Year" tab (closed-won/technical-win export) → `closed_deals` table |
+| `tech_forecast_sync.py` | Google Sheets "Satish Technical Forecast Current Q" tab (Technical Forecast pipeline) → `tech_forecast_deals` table |
 | `slack_sync.py` | Slack `search.messages` → `slack_notes` table |
 | `mcp_ingest.py` | CLI bridge — loads MCP-fetched JSON into the DB, no credentials needed |
 | `reviews.py` | LiteLLM-backed review drafting |

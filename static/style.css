@@ -199,3 +199,39 @@ body.present-mode .present-exit-btn {
 body.present-mode .present-exit-btn:hover { color: var(--text-primary); border-color: var(--border-active); }
 body.present-mode .page { padding-top: 50px; }
 .slack-note .meta { font-size: .68rem; color: var(--text-muted); margin-bottom: 4px; }
+
+/* ── Light mode ──────────────────────────────────────────────────────────── */
+body.light-mode {
+  --bg-app:        #F5F7FA;
+  --bg-nav:        #FFFFFF;
+  --bg-card:       #FFFFFF;
+  --bg-card-hover: #F0F3F8;
+  --bg-input:      #FFFFFF;
+  --bg-modal:      #FFFFFF;
+  --bg-tag:        #EAF0F7;
+
+  --border:        #D8E1EC;
+  --border-active: #007DC1;
+  --border-focus:  #00A4E0;
+
+  --text-primary:   #142235;
+  --text-secondary: #4C6478;
+  --text-muted:     #8398AC;
+  --text-accent:    #007DC1;
+
+  --depth-raised: inset 0 1px 0 rgba(255,255,255,.6), 0 4px 16px rgba(20,34,53,.08), 0 1px 4px rgba(20,34,53,.05);
+  --depth-raised-hover: inset 0 1px 0 rgba(255,255,255,.7), 0 8px 28px rgba(20,34,53,.1), 0 2px 6px rgba(20,34,53,.06);
+  --depth-inset: inset 0 2px 5px rgba(20,34,53,.08), inset 0 1px 2px rgba(20,34,53,.05);
+  --depth-inset-focus: inset 0 2px 5px rgba(20,34,53,.08), 0 0 0 2px rgba(0,125,193,.18);
+  --card-grad: linear-gradient(180deg, rgba(20,34,53,.015) 0%, var(--bg-card) 100%);
+  --shadow:      0 4px 24px rgba(20,34,53,.12);
+  --shadow-card: 0 2px 12px rgba(20,34,53,.08);
+}
+body.light-mode .btn-primary { color: #fff; }
+
+/* ── Sub-threshold flyout ────────────────────────────────────────────────── */
+.flyout summary { cursor: pointer; font-size: .82rem; font-weight: 600; color: var(--okta-blue-lt); padding: 8px 0; list-style: none; }
+.flyout summary::-webkit-details-marker { display: none; }
+.flyout summary::before { content: '▸ '; }
+.flyout[open] summary::before { content: '▾ '; }
+.table-scroll { overflow-x: auto; }

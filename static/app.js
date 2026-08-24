@@ -105,10 +105,10 @@ async function renderDashboard() {
               <td>${stageBadge(d.stage)}</td>
               <td>${d.close_date || '-'}</td>
               <td>${fmtMoney(d.amount)}</td>
-              <td class="pill-row">
+              <td><div class="pill-row">
                 ${d.poc ? '<span class="badge badge-purple">POC</span>' : ''}
                 ${d.se_needed ? '<span class="badge badge-amber">SE Needed</span>' : ''}
-              </td>
+              </div></td>
             </tr>
           `).join('') || `<tr><td colspan="6"><div class="empty-state">No deals match these filters</div></td></tr>`}
         </tbody>
@@ -181,6 +181,41 @@ function dealFlags(d, threshold) {
   `;
 }
 
+function notesCell(text, maxWidth) {
+  const safe = (text || '').replace(/"/g, '&quot;');
+  return `<td title="${safe}" style="max-width:${maxWidth}px;font-size:.78rem;color:var(--text-secondary)">${truncate(text, 90) || '-'}</td>`;
+}
+
+function inspectRow(d, threshold) {
+  return `
+    <tr>
+      <td>${d.opportunity_name}<div style="color:var(--text-muted);font-size:.72rem">AE: ${d.opportunity_owner || '-'}</div></td>
+      <td>${d.sales_stage || '-'}</td>
+      <td>${presalesStageBadge(d.presales_stage)}</td>
+      <td>${forecastStatusBadge(d.forecast_status)}</td>
+      <td>${d.technical_win_date || '-'}</td>
+      <td>${fmtMoney(d.amount)}</td>
+      <td><div class="pill-row">${dealFlags(d, threshold)}</div></td>
+      ${notesCell(d.pre_sales_notes, 220)}
+      ${notesCell(d.se_manager_notes, 220)}
+    </tr>
+  `;
+}
+
+function inspectTable(deals, threshold) {
+  return `
+    <div class="table-scroll">
+      <table>
+        <thead><tr>
+          <th>Opportunity</th><th>Stage</th><th>Presales Stage</th><th>Forecast Status</th>
+          <th>Tech win date</th><th>Amount</th><th>Flags</th><th>Pre-sales next steps</th><th>SE manager notes</th>
+        </tr></thead>
+        <tbody>${deals.map(d => inspectRow(d, threshold)).join('')}</tbody>
+      </table>
+    </div>
+  `;
+}
+
 async function renderTechForecast() {
   const data = await API.get('/api/tech-forecast');
   const threshold = data.must_win_threshold;
@@ -191,6 +226,8 @@ async function renderTechForecast() {
   const riskDeals = deals.filter(d => d.forecast_status === 'Forecasted Risk');
   const staleDeals = deals.filter(d => d.notes_stale);
   const inspectDeals = deals.filter(d => d.presales_stage !== '6 - Technical Win');
+  const inspectMustWin = inspectDeals.filter(d => d.amount >= threshold);
+  const inspectBelow = inspectDeals.filter(d => d.amount < threshold);
   const wrapUpDeals = deals
     .filter(d => d.presales_stage !== '6 - Technical Win' && (d.forecast_status === 'Forecasted Risk' || d.notes_stale))
     .sort((a, b) => (b.amount >= threshold) - (a.amount >= threshold) || b.amount - a.amount);
@@ -218,12 +255,12 @@ async function renderTechForecast() {
       <div class="card-title">Look Back — Recent Technical Wins</div>
       ${data.recent_wins.length ? `
         <table>
-          <thead><tr><th>Opportunity</th><th>Rep / Owner</th><th>Win date</th><th>Amount</th><th>Status</th></tr></thead>
+          <thead><tr><th>Opportunity</th><th>Rep (won) / AE (in pipeline)</th><th>Win date</th><th>Amount</th><th>Status</th></tr></thead>
           <tbody>
             ${data.recent_wins.map(w => `
               <tr>
                 <td>${w.opportunity_name}</td>
-                <td>${w.rep_name || w.opportunity_owner || '-'}</td>
+                <td>${w.source === 'closed' ? (w.rep_name || '-') : `${w.opportunity_owner || '-'} <span style="color:var(--text-muted);font-size:.68rem">(AE)</span>`}</td>
                 <td>${w.win_date || '-'}</td>
                 <td>${fmtMoney(w.amount)}</td>
                 <td><span class="badge ${w.source === 'closed' ? 'badge-green' : 'badge-blue'}">${w.source === 'closed' ? 'Closed win' : 'Tech win (open)'}</span></td>
@@ -235,25 +272,14 @@ async function renderTechForecast() {
     </div>
 
     <div class="card">
-      <div class="card-title">Look Forward &amp; Inspect — Open Technical Pipeline (${inspectDeals.length})</div>
-      ${inspectDeals.length ? `
-        <table>
-          <thead><tr><th>Opportunity</th><th>Presales Stage</th><th>Forecast Status</th><th>Tech win date</th><th>Amount</th><th>Flags</th><th>Pre-sales next steps</th></tr></thead>
-          <tbody>
-            ${inspectDeals.map(d => `
-              <tr>
-                <td>${d.opportunity_name}<div style="color:var(--text-muted);font-size:.72rem">${d.opportunity_owner || ''}</div></td>
-                <td>${presalesStageBadge(d.presales_stage)}</td>
-                <td>${forecastStatusBadge(d.forecast_status)}</td>
-                <td>${d.technical_win_date || '-'}</td>
-                <td>${fmtMoney(d.amount)}</td>
-                <td class="pill-row">${dealFlags(d, threshold)}</td>
-                <td title="${(d.pre_sales_notes || '').replace(/"/g, '&quot;')}" style="max-width:260px;font-size:.78rem;color:var(--text-secondary)">${truncate(d.pre_sales_notes, 90) || '-'}</td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      ` : '<div class="empty-state">No open technical pipeline synced yet</div>'}
+      <div class="card-title">Look Forward &amp; Inspect — Must-Win Pipeline ($150K+) (${inspectMustWin.length})</div>
+      ${inspectMustWin.length ? inspectTable(inspectMustWin, threshold) : '<div class="empty-state">No open Must-Win deals synced yet</div>'}
+      ${inspectBelow.length ? `
+        <details class="flyout" style="margin-top:14px">
+          <summary>Show ${inspectBelow.length} deal${inspectBelow.length === 1 ? '' : 's'} below $150K</summary>
+          <div style="margin-top:10px">${inspectTable(inspectBelow, threshold)}</div>
+        </details>
+      ` : ''}
     </div>
 
     <div class="card">
@@ -267,7 +293,7 @@ async function renderTechForecast() {
                 <td>${d.opportunity_name}</td>
                 <td>${forecastStatusBadge(d.forecast_status)}</td>
                 <td>${fmtMoney(d.amount)}</td>
-                <td class="pill-row">${dealFlags(d, threshold)}</td>
+                <td><div class="pill-row">${dealFlags(d, threshold)}</div></td>
               </tr>
             `).join('')}
           </tbody>
@@ -401,4 +427,19 @@ async function renderSettings() {
   };
 }
 
-document.addEventListener('DOMContentLoaded', () => navigate('dashboard'));
+/* ── Theme toggle ────────────────────────────────────────────────────────── */
+function applyTheme(light) {
+  document.body.classList.toggle('light-mode', light);
+  const btn = document.getElementById('theme-toggle-btn');
+  if (btn) btn.innerHTML = light ? '&#127769; Dark mode' : '&#9728; Light mode';
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  applyTheme(localStorage.getItem('theme') === 'light');
+  document.getElementById('theme-toggle-btn').onclick = () => {
+    const light = !document.body.classList.contains('light-mode');
+    localStorage.setItem('theme', light ? 'light' : 'dark');
+    applyTheme(light);
+  };
+  navigate('dashboard');
+});
