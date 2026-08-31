@@ -250,18 +250,12 @@ function forecastStatusBadge(status) {
   return `<span class="badge ${map[status] || 'badge-muted'}">${status || '-'}</span>`;
 }
 
-function coverageBadge(ratioStr) {
-  if (ratioStr == null || ratioStr === '') return `<span class="badge badge-muted">-</span>`;
-  const n = parseFloat(ratioStr);
-  const cls = isNaN(n) ? 'badge-muted' : (n >= 1 ? 'badge-green' : 'badge-red');
-  return `<span class="badge ${cls}">${ratioStr}</span>`;
-}
-
 function dealFlags(d, threshold) {
   return `
     ${d.amount >= threshold ? '<span class="badge badge-purple">Must-Win</span>' : ''}
     ${d.notes_stale ? '<span class="badge badge-amber">No update this week</span>' : ''}
-    ${!d.pre_sales_notes ? '<span class="badge badge-amber">No TW Strategy</span>' : ''}
+    ${!d.pre_sales_next_steps ? '<span class="badge badge-amber">No TW Strategy</span>' : ''}
+    ${d.needs_lead_se ? '<span class="badge badge-amber">No Lead SE (sheet)</span>' : ''}
   `;
 }
 
@@ -294,6 +288,7 @@ function inspectRow(d, threshold) {
       <td>${seAssignSelect(d)}</td>
       <td><div class="pill-row">${dealFlags(d, threshold)}</div></td>
       ${notesCell(d.pre_sales_notes, 220)}
+      ${notesCell(d.pre_sales_next_steps, 220)}
       ${notesCell(d.se_manager_notes, 220)}
     </tr>
   `;
@@ -305,7 +300,7 @@ function inspectTable(deals, threshold) {
       <table>
         <thead><tr>
           <th>Opportunity</th><th>Stage</th><th>Presales Stage</th><th>Forecast Status</th>
-          <th>Tech win date</th><th>Amount</th><th>SE</th><th>Flags</th><th>Pre-sales next steps</th><th>SE manager notes</th>
+          <th>Tech win date</th><th>Amount</th><th>SE</th><th>Flags</th><th>Pre-sales notes</th><th>Pre-sales next steps</th><th>SE manager notes</th>
         </tr></thead>
         <tbody>${deals.map(d => inspectRow(d, threshold)).join('')}</tbody>
       </table>
@@ -313,27 +308,19 @@ function inspectTable(deals, threshold) {
   `;
 }
 
-function aeCrossrefTable(crossref) {
+function needsLeadSeTable(rows) {
   return `
     <div class="table-scroll">
       <table>
-        <thead><tr>
-          <th>AE</th><th>Quota</th><th>Auth0 Forecast</th><th>Auth0 Gap</th>
-          <th>Okta Forecast</th><th>Okta Gap</th><th>Coverage vs Quota</th><th>Coverage vs Forecast</th>
-          <th>Open Tech Pipeline</th>
-        </tr></thead>
+        <thead><tr><th>Opportunity</th><th>AE</th><th>Presales Stage</th><th>Forecast Status</th><th>Amount</th></tr></thead>
         <tbody>
-          ${crossref.map(a => `
+          ${rows.map(r => `
             <tr>
-              <td>${a.ae_name}</td>
-              <td>${fmtMoney(a.quota_amount)}</td>
-              <td>${fmtMoney(a.forecast_auth_amount)}</td>
-              <td>${fmtMoney(a.gap_auth_derived)}</td>
-              <td>${fmtMoney(a.forecast_okta_amount)}</td>
-              <td>${fmtMoney(a.gap_okta_derived)}</td>
-              <td>${coverageBadge(a.coverage_vs_quota_blended)}</td>
-              <td>${coverageBadge(a.coverage_vs_forecast_blended)}</td>
-              <td>${fmtMoney(a.open_tech_pipeline_amount)} <span style="color:var(--text-muted);font-size:.68rem">(${a.open_tech_pipeline_count})</span></td>
+              <td>${r.opportunity_name}</td>
+              <td>${r.opportunity_owner || '-'}</td>
+              <td>${presalesStageBadge(r.presales_stage)}</td>
+              <td>${forecastStatusBadge(r.forecast_status)}</td>
+              <td>${fmtMoney(r.amount)}</td>
             </tr>
           `).join('')}
         </tbody>
@@ -343,10 +330,7 @@ function aeCrossrefTable(crossref) {
 }
 
 async function renderTechForecast() {
-  const [data, crossref] = await Promise.all([
-    API.get('/api/tech-forecast'),
-    API.get('/api/tech-forecast/ae-crossref'),
-  ]);
+  const data = await API.get('/api/tech-forecast');
   state.reps = await API.get('/api/reps');
   const threshold = data.must_win_threshold;
   const deals = data.deals;
@@ -355,6 +339,7 @@ async function renderTechForecast() {
   const mustWins = deals.filter(d => d.amount >= threshold);
   const riskDeals = deals.filter(d => d.forecast_status === 'Forecasted Risk');
   const staleDeals = deals.filter(d => d.notes_stale);
+  const needsLeadSeDeals = deals.filter(d => d.needs_lead_se).sort((a, b) => (b.amount || 0) - (a.amount || 0));
   const inspectDeals = deals.filter(d => d.presales_stage !== '6 - Technical Win');
   const inspectMustWin = inspectDeals.filter(d => d.amount >= threshold);
   const inspectBelow = inspectDeals.filter(d => d.amount < threshold);
@@ -379,11 +364,12 @@ async function renderTechForecast() {
       <div class="stat-card"><div class="stat-value">${mustWins.length}</div><div class="stat-label">Must-Wins ($150K+) — ${fmtMoney(mustWins.reduce((s, d) => s + (d.amount || 0), 0))}</div></div>
       <div class="stat-card"><div class="stat-value">${riskDeals.length}</div><div class="stat-label">Forecasted Risk</div></div>
       <div class="stat-card"><div class="stat-value">${staleDeals.length}</div><div class="stat-label">No update this week</div></div>
+      <div class="stat-card"><div class="stat-value">${needsLeadSeDeals.length}</div><div class="stat-label">Needs Lead SE — ${fmtMoney(needsLeadSeDeals.reduce((s, d) => s + (d.amount || 0), 0))}</div></div>
     </div>
 
     <div class="card">
-      <div class="card-title">AE Forecast Coverage (Clari)</div>
-      ${crossref.length ? aeCrossrefTable(crossref) : '<div class="empty-state">No Clari export synced yet — drop this week\'s CSVs in Clari Reporting and ask Claude to sync</div>'}
+      <div class="card-title">Needs Lead SE (${needsLeadSeDeals.length})</div>
+      ${needsLeadSeDeals.length ? needsLeadSeTable(needsLeadSeDeals) : '<div class="empty-state">Every deal in the sheet has a Lead SE set</div>'}
     </div>
 
     <div class="card">

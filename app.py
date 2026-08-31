@@ -149,13 +149,17 @@ def list_deals():
 @app.route("/api/tech-forecast")
 def tech_forecast():
     with db.conn() as c:
-        # tech_forecast_deals carries no SE attribution of its own (it's grouped by AE/
-        # region, not by SE) — infer it live by matching Opportunity Name against `deals`,
-        # which does carry se_rep_id. Not every row matches (e.g. a deal that's since
-        # dropped off the open pipeline); those fall back to "Unassigned" below unless
-        # Claude Leroux has set an explicit assigned_se_rep_id override, which always wins.
+        # SE-attribution precedence: (1) assigned_se_rep_id — Claude Leroux's manual
+        # override, always wins; (2) the sheet's own Lead Sales Engineer column,
+        # resolved by case-insensitive name match against se_reps; (3) an opportunity-
+        # name join against `deals.se_rep_id`, kept as a fallback for rows the sheet
+        # hasn't attributed yet; (4) "Unassigned". `needs_lead_se` is reported
+        # separately from all of that — it's the literal "sheet has no Lead SE set"
+        # signal, independent of whatever attribution the app manages to resolve.
         deal_rows = c.execute("""
             SELECT tf.*,
+                (SELECT r.id FROM se_reps r
+                    WHERE lower(r.name) = lower(tf.lead_se_name) LIMIT 1) AS lead_se_rep_id,
                 (SELECT d.se_rep_id FROM deals d
                     WHERE d.opportunity_name = tf.opportunity_name
                     ORDER BY d.id LIMIT 1) AS attributed_se_id
@@ -170,10 +174,11 @@ def tech_forecast():
     deals = []
     for r in deal_rows:
         d = dict(r)
-        effective_se_id = d["assigned_se_rep_id"] or d["attributed_se_id"]
+        effective_se_id = d["assigned_se_rep_id"] or d["lead_se_rep_id"] or d["attributed_se_id"]
         d["attributed_se_name"] = reps_by_id.get(d["attributed_se_id"])
         d["effective_se_rep_id"] = effective_se_id
         d["effective_se_name"] = reps_by_id.get(effective_se_id, "Unassigned") if effective_se_id else "Unassigned"
+        d["needs_lead_se"] = not d["lead_se_name"]
         deals.append(d)
 
     recent_wins = [dict(r) | {"source": "closed", "win_date": r["close_date"]} for r in closed_wins]
@@ -189,11 +194,6 @@ def tech_forecast():
         "must_win_threshold": report.MUST_WIN_THRESHOLD,
         "last_synced_at": db.get_setting("tech_forecast_last_synced_at"),
     })
-
-
-@app.route("/api/tech-forecast/ae-crossref")
-def tech_forecast_ae_crossref():
-    return jsonify(report.build_ae_crossref(db))
 
 
 @app.route("/api/tech-forecast/preread")

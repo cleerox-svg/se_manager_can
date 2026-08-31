@@ -1,28 +1,30 @@
-"""Pulls the Team Tracking Sheet's "Sheet4" tab (Technical Forecast export —
-Presales Stage, Deal Forecast Status, Technical Win Date) into the local
-`tech_forecast_deals` table.
+"""Pulls the Team Tracking Sheet's "Claude This q and next" tab (Technical
+Forecast export — Presales Stage, Deal Forecast Status, Technical Win Date)
+into the local `tech_forecast_deals` table. The sheet itself auto-refreshes
+every 24 hours, so a live MCP fetch of this tab is always considered fresh —
+this script does no staleness-of-fetch checking of its own.
 
 Same grouped/hierarchical layout as the other tabs, but nested three levels
-deep instead of one: Account Owner AVP Region > Presales Stage > Deal
-Forecast Status > individual deal rows. Each level's group-header cell
-carries a row-count suffix ("AMER CAN (11)", "3 - Technical Scoping (2)",
+deep instead of one: Lead Sales Engineer > Presales Stage > Deal Forecast
+Status > individual deal rows. Each level's group-header cell carries a
+row-count suffix ("Nic Da Silva (9)", "3 - Technical Scoping (2)",
 "Strong (2)") and each level has its own Subtotal row where the *next*
 column over reads the literal word "Subtotal" instead of a real group name.
+Deals with no Lead SE assigned yet group under a bare "-" instead of a name.
 We forward-fill all three group columns and drop any row with a blank
 Opportunity Name (true for every subtotal/total row at every level, so it
 alone is a reliable skip check).
 
-This tab has no per-rep column at all (it's grouped by AE region, not by
-SE), so unlike `deals`/`closed_deals` there's no `se_rep_id` column stored
-on `tech_forecast_deals` — it covers the whole country's technical
-pipeline, not just Claude Leroux's four tracked direct reports. SE
-attribution for the Team page and Technical Forecast page is instead
-derived live, in `app.py`, by matching each row's Opportunity Name against
-`deals.opportunity_name` (which does carry `se_rep_id`) — not stored here,
-so it always reflects the current `deals` table. Around 90% of current
-rows match; unmatched rows (a deal that's since dropped off the open
-pipeline) fall back to AE-only display.
+Unlike the old "Satish Technical Forecast Current Q" tab this replaced, the
+sheet now carries real Lead SE attribution natively (`lead_se_name`), so
+`app.py` prefers a name match against `se_reps` over the old opportunity-
+name-join heuristic — the join is kept only as a fallback for rows the name
+match misses. `lead_se_name` being blank (the "-" group) is also surfaced
+directly as `needs_lead_se` in `tech_forecast_report.py`, independent of
+whatever attribution the app manages to resolve.
 
+The sheet splits notes into three distinct columns — Pre-Sales Notes, SE
+Manager Notes, and Pre-Sales Next Steps — all kept as separate fields.
 Pre-Sales Next Steps is freeform, hand-typed text with no reliable
 structured date. To flag "no update this week" we diff each row's
 Pre-Sales Next Steps against the value it held as of the *previous* sync
@@ -37,7 +39,7 @@ from datetime import date, datetime
 import tech_forecast_report as report
 
 _HEADER_MAP = {
-    "Account Owner AVP Region": "region",
+    "Lead Sales Engineer": "lead_se_name",
     "Presales Stage": "presales_stage",
     "Deal Forecast Status": "forecast_status",
     "Amount (converted)": "amount",
@@ -48,15 +50,16 @@ _HEADER_MAP = {
     "Type": "deal_type",
     "Account Region": "account_region",
     "Close Date": "close_date",
+    "Pre-Sales Notes": "pre_sales_notes",
     "SE Manager Notes": "se_manager_notes",
-    "Pre-Sales Next Steps": "pre_sales_notes",
+    "Pre-Sales Next Steps": "pre_sales_next_steps",
     "Technical Win Date": "technical_win_date",
     "Account Owner Geo-Seg": "geo_seg",
     "Account Owner Sales Segment": "sales_segment",
     "Account Owner Sales Geography": "sales_geo",
 }
 
-_GROUP_LEVELS = ("region", "presales_stage", "forecast_status")
+_GROUP_LEVELS = ("lead_se_name", "presales_stage", "forecast_status")
 
 _SKIP_MARKERS = ("subtotal", "total")
 
@@ -64,11 +67,12 @@ _GROUP_SUFFIX_RE = re.compile(r"\s*\(\d+\)\s*$")
 
 
 def _strip_group_suffix(raw: str) -> str:
-    """Strip the trailing row-count, e.g. 'AMER CAN (11)' -> 'AMER CAN'.
-    A bare 'Subtotal'/'Total' group cell collapses to '' so it never
+    """Strip the trailing row-count, e.g. 'Nic Da Silva (11)' -> 'Nic Da
+    Silva'. A bare 'Subtotal'/'Total' group cell, or the sheet's bare '-'
+    placeholder for "no Lead SE assigned yet", collapses to '' so it never
     forward-fills and poisons the next group's rows."""
     stripped = _GROUP_SUFFIX_RE.sub("", raw).strip()
-    if stripped.lower() in _SKIP_MARKERS:
+    if stripped.lower() in _SKIP_MARKERS or stripped == "-":
         return ""
     return stripped
 
@@ -116,9 +120,18 @@ def _normalize_values(values: list[list[str]]) -> list[dict]:
 
         for level in _GROUP_LEVELS:
             raw_val = cells.get(level, "")
-            stripped = _strip_group_suffix(raw_val)
-            if stripped:
-                if level == "presales_stage":
+            # A non-empty cell always marks the start of a new group at this
+            # level — even the sheet's bare "-" (no Lead SE assigned), which
+            # strips to "". Only a truly empty cell means "same as the row
+            # above." Using `raw_val` (not the stripped result) to decide
+            # keeps a "-" group from incorrectly inheriting the previous
+            # named group's fill.
+            if raw_val:
+                stripped = _strip_group_suffix(raw_val)
+                if level == "lead_se_name":
+                    fill["presales_stage"] = ""
+                    fill["forecast_status"] = ""
+                elif level == "presales_stage":
                     fill["forecast_status"] = ""
                 fill[level] = stripped
                 cells[level] = stripped
@@ -145,22 +158,24 @@ def load_rows(db, rows: list[dict]) -> dict:
             sheet_key = "|".join([row.get("opportunity_name", ""), row.get("close_date", "")])
             seen_keys.append(sheet_key)
 
-            new_notes = row.get("pre_sales_notes", "")
+            new_next_steps = row.get("pre_sales_next_steps", "")
             existing = c.execute(
-                "SELECT pre_sales_notes FROM tech_forecast_deals WHERE sheet_key = ?", (sheet_key,)
+                "SELECT pre_sales_next_steps FROM tech_forecast_deals WHERE sheet_key = ?", (sheet_key,)
             ).fetchone()
-            prior_notes = existing["pre_sales_notes"] if existing else None
-            notes_stale = 1 if existing is not None and prior_notes == new_notes else 0
+            prior_next_steps = existing["pre_sales_next_steps"] if existing else None
+            notes_stale = 1 if existing is not None and prior_next_steps == new_next_steps else 0
 
             c.execute("""
                 INSERT INTO tech_forecast_deals (
-                    sheet_key, opportunity_name, amount, presales_stage, forecast_status,
+                    sheet_key, lead_se_name, opportunity_name, amount, presales_stage, forecast_status,
                     sales_stage, deal_type, account_region, geo_seg, sales_segment, sales_geo,
                     close_date, technical_win_date, opportunity_owner, opportunity_owner_manager,
-                    se_manager_notes, pre_sales_notes, notes_prev_sync, notes_stale, last_synced_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                    se_manager_notes, pre_sales_notes, pre_sales_next_steps, notes_prev_sync,
+                    notes_stale, last_synced_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
                 ON CONFLICT(sheet_key) DO UPDATE SET
-                    amount = excluded.amount, presales_stage = excluded.presales_stage,
+                    lead_se_name = excluded.lead_se_name, amount = excluded.amount,
+                    presales_stage = excluded.presales_stage,
                     forecast_status = excluded.forecast_status, sales_stage = excluded.sales_stage,
                     deal_type = excluded.deal_type, account_region = excluded.account_region,
                     geo_seg = excluded.geo_seg, sales_segment = excluded.sales_segment,
@@ -170,15 +185,18 @@ def load_rows(db, rows: list[dict]) -> dict:
                     opportunity_owner_manager = excluded.opportunity_owner_manager,
                     se_manager_notes = excluded.se_manager_notes,
                     pre_sales_notes = excluded.pre_sales_notes,
+                    pre_sales_next_steps = excluded.pre_sales_next_steps,
                     notes_prev_sync = excluded.notes_prev_sync,
                     notes_stale = excluded.notes_stale, last_synced_at = datetime('now')
             """, (
-                sheet_key, row.get("opportunity_name"), _parse_amount(row.get("amount", "")),
+                sheet_key, row.get("lead_se_name"), row.get("opportunity_name"),
+                _parse_amount(row.get("amount", "")),
                 row.get("presales_stage"), row.get("forecast_status"), row.get("sales_stage"),
                 row.get("deal_type"), row.get("account_region"), row.get("geo_seg"),
                 row.get("sales_segment"), row.get("sales_geo"), close_date, technical_win_date,
                 row.get("opportunity_owner"), row.get("opportunity_owner_manager"),
-                row.get("se_manager_notes"), new_notes, prior_notes, notes_stale,
+                row.get("se_manager_notes"), row.get("pre_sales_notes", ""), new_next_steps,
+                prior_next_steps, notes_stale,
             ))
 
         if seen_keys:

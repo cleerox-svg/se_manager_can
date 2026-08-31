@@ -28,54 +28,48 @@ on [NaughtRFP](../rfp-responder)'s stack and Okta dark-theme UI.
   badge next to the tab label and on the Team page.
 - **Technical Forecast** — weekly Technical Forecast Call view modeled on
   Okta's Presales Technical Win Process, synced from the Team Tracking
-  Sheet's Technical Forecast tab (currently "Satish Technical Forecast
-  Current Q" — tab names get renamed by the user from time to time, see
-  CLAUDE.md). Five sections: Macro View (stat-grid — total tech forecast
-  ARR, Must-Win count/$, Forecasted Risk count, stale-notes count — plus an
-  "AE Forecast Coverage" panel sourced from the weekly Clari CSV export, see
-  "Clari AE cross-reference" below), Look Back (recent technical wins,
-  blending closed `tech_win` deals with open deals already at "6 - Technical
-  Win"), Look Forward & Inspect (open technical pipeline, split into a
-  Must-Win ($150K+) table shown by default plus a collapsible flyout for
-  everything below $150K — each row shows Stage, Presales Stage, Forecast
-  Status, Tech Win Date, Amount, an SE dropdown, Flags, Pre-Sales next
-  steps, and SE Manager notes, with the Opportunity Owner shown as "AE"
-  since this sheet has no SE-specific field — see "SE attribution" below),
-  and Wrap-Up & Risk (Forecasted Risk and/or stale-notes deals, Must-Wins
-  surfaced first, same AE/SE display as Look Forward & Inspect). A Must-Win
-  is any deal >= $150K. A deal's pre-sales notes are flagged stale ("No
-  update this week") when they're unchanged from the previous sync — not by
-  parsing dates in the freeform text; a blank pre-sales-notes field is
-  flagged separately as "No TW Strategy". A "Present mode" toggle hides the
-  sidebar/topbar for clean screen-sharing during the Monday call. A
+  Sheet's Technical Forecast tab (currently "Claude This q and next" —
+  auto-refreshes every 24h, tab names get renamed by the user from time to
+  time, see CLAUDE.md). The sheet is grouped by Lead Sales Engineer first
+  (then Presales Stage, then Deal Forecast Status), including a literal
+  "no Lead SE assigned yet" group — see "SE attribution" below. Five
+  sections: Macro View (stat-grid — total tech forecast ARR, Must-Win
+  count/$, Forecasted Risk count, stale-notes count, and Needs Lead SE
+  count/$), Look Back (recent technical wins, blending closed `tech_win`
+  deals with open deals already at "6 - Technical Win"), Look Forward &
+  Inspect (open technical pipeline, split into a Must-Win ($150K+) table
+  shown by default plus a collapsible flyout for everything below $150K —
+  each row shows Stage, Presales Stage, Forecast Status, Tech Win Date,
+  Amount, an SE dropdown (with a "No Lead SE (sheet)" badge when the sheet
+  itself has no Lead SE set), Flags, and all three of Pre-Sales Notes, SE
+  Manager Notes, and Pre-Sales Next Steps as distinct columns), and
+  Wrap-Up & Risk (Forecasted Risk and/or stale-notes deals, Must-Wins
+  surfaced first, same SE display as Look Forward & Inspect). A Must-Win
+  is any deal >= $150K. A deal is flagged stale ("No update this week")
+  when its Pre-Sales Next Steps text is unchanged from the previous sync —
+  not by parsing dates in the freeform text. A "Present mode" toggle hides
+  the sidebar/topbar for clean screen-sharing during the Monday call. A
   light/dark theme toggle (sidebar footer) persists via `localStorage`.
-- **SE attribution (Team ↔ Technical Forecast)** — `tech_forecast_deals`
-  has no automatic `se_rep_id` of its own (see `tech_forecast_sync.py`), so
-  both the Team page's "Tech Forecast ARR" figure and the Technical
-  Forecast page's per-row SE dropdown are derived live in `app.py` by
-  matching Opportunity Name against `deals.opportunity_name`, which does
-  carry `se_rep_id` (~90% match rate; unmatched rows fall back to
-  "Unassigned"). The Technical Forecast page's SE dropdown lets the manager
-  override that auto-match per deal (`assigned_se_rep_id`, stored on
-  `tech_forecast_deals`) — an explicit override always wins over the
-  auto-match, and the dropdown pre-selects whichever one is currently
-  effective while remaining editable.
-- **Clari AE cross-reference** — a weekly manual CSV drop (This Quarter /
-  Next Quarter exports from Clari, see "Clari data model" below) that
-  surfaces, per AE, their quota, native Auth0/Okta forecast, a derived
-  gap-to-forecast per product, blended pipeline-coverage ratios, and that
-  AE's own open (non-Technical-Win) technical pipeline $/count — so the call
-  can flag "a tech win here would most help this AE close their gap." Shown
-  as its own Macro View card; renders an empty state until the first sync.
-  No in-app upload — Claude Leroux drops the CSVs in the `Clari Reporting`
-  folder and asks Claude to sync (see CLAUDE.md).
+- **SE attribution (Team ↔ Technical Forecast)** — the sheet now carries
+  real Lead SE attribution natively (`lead_se_name`), so `app.py` resolves
+  each deal's effective SE with this precedence: (1) an explicit manager
+  override (`assigned_se_rep_id`, set via the Technical Forecast page's SE
+  dropdown — always wins), (2) `lead_se_name` matched case-insensitively
+  against `se_reps`, (3) an opportunity-name join against
+  `deals.se_rep_id`, kept as a fallback for the rows the sheet hasn't
+  attributed yet, (4) "Unassigned". Separately, `needs_lead_se` reports the
+  literal "sheet has no Lead SE set" signal for a deal, independent of
+  whatever attribution the app manages to resolve — this drives the Needs
+  Lead SE stat card and per-row badge, and the manager's own override
+  doesn't clear it (it's about what the sheet itself says, not what the app
+  has resolved).
 - **Slack preread** — `GET /api/tech-forecast/preread` assembles an
   Executive Takeaway, Key Metrics, Pipeline Breakdown, Top deals (excluding
-  Technical Win/Final Due Diligence), week-over-week deltas, and the AE
-  cross-reference into one payload modeled on the "Tech Win Forecast & Risk
-  Summary" format the manager's own chain uses. No in-app send button —
-  Claude drafts the Slack message from this payload on request and posts it
-  via the Slack MCP tools after review.
+  Technical Win/Final Due Diligence), week-over-week deltas, and the list
+  of deals needing a Lead SE into one payload modeled on the "Tech Win
+  Forecast & Risk Summary" format the manager's own chain uses. No in-app
+  send button — Claude drafts the Slack message from this payload on
+  request and posts it via the Slack MCP tools after review.
 - **Settings** — sync status/buttons for Google Sheets and Slack, and a
   placeholder for Gong (not built — planned as a future integration).
 
@@ -116,18 +110,14 @@ Data gets in via one of two paths — see [SETUP.md](SETUP.md):
   closed-deal/technical-win evidence.
 - `tech_forecast_deals` — synced from the Team Tracking Sheet's Technical
   Forecast tab, one row per open deal in the technical-win pipeline
-  (Presales Stage, Deal Forecast Status, Technical Win Date, overall Stage,
-  pre-sales/SE-manager notes, plus a manually-set `assigned_se_rep_id`
+  (`lead_se_name` straight from the sheet, Presales Stage, Deal Forecast
+  Status, Technical Win Date, overall Stage, Pre-Sales Notes, SE Manager
+  Notes, Pre-Sales Next Steps, plus a manually-set `assigned_se_rep_id`
   override — see "SE attribution" above).
   Loaded the same MCP-assisted way (`py mcp_ingest.py tech_forecast
-  <json_file>`). Each sync diffs incoming pre-sales notes against the
+  <json_file>`). Each sync diffs incoming Pre-Sales Next Steps against the
   previously-stored value per row to set `notes_stale`, and also captures a
   same-day snapshot (see `tech_forecast_snapshots` below).
-- `clari_ae_snapshots` — one row per (source label, AE, Clari Field, Data
-  Type), holding only the row matching *today's* date window from the
-  weekly Clari CSV export — see "Clari data model" in CLAUDE.md. Loaded by
-  `clari_sync.py`, a manual local-file parser (no Clari API/MCP surface
-  exists).
 - `tech_forecast_snapshots` — one row per sync day, holding that day's
   bucket totals and per-deal state as JSON — the baseline
   `tech_forecast_report.build_weekly_deltas` diffs the next sync against to

@@ -46,6 +46,12 @@ class Database:
                 "ALTER TABLE tech_forecast_deals "
                 "ADD COLUMN assigned_se_rep_id INTEGER REFERENCES se_reps(id)"
             )
+        if "lead_se_name" not in cols:
+            c.execute("ALTER TABLE tech_forecast_deals ADD COLUMN lead_se_name TEXT")
+        if "pre_sales_next_steps" not in cols:
+            c.execute("ALTER TABLE tech_forecast_deals ADD COLUMN pre_sales_next_steps TEXT")
+
+        c.execute("DROP TABLE IF EXISTS clari_ae_snapshots")
 
     def init(self):
         with self.conn() as c:
@@ -117,6 +123,7 @@ class Database:
                 CREATE TABLE IF NOT EXISTS tech_forecast_deals (
                     id                       INTEGER PRIMARY KEY AUTOINCREMENT,
                     sheet_key                TEXT UNIQUE,
+                    lead_se_name             TEXT,
                     opportunity_name         TEXT,
                     amount                   REAL,
                     presales_stage           TEXT,
@@ -133,27 +140,11 @@ class Database:
                     opportunity_owner_manager TEXT,
                     se_manager_notes         TEXT,
                     pre_sales_notes          TEXT,
+                    pre_sales_next_steps     TEXT,
                     notes_prev_sync          TEXT,
                     notes_stale              INTEGER DEFAULT 0,
+                    assigned_se_rep_id       INTEGER REFERENCES se_reps(id),
                     last_synced_at           TEXT DEFAULT (datetime('now'))
-                );
-
-                CREATE TABLE IF NOT EXISTS clari_ae_snapshots (
-                    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-                    sync_key            TEXT UNIQUE,
-                    source_label        TEXT,
-                    ae_name             TEXT,
-                    ae_email            TEXT,
-                    role                TEXT,
-                    parent_role         TEXT,
-                    field               TEXT,
-                    data_type           TEXT,
-                    data_value          TEXT,
-                    data_value_numeric  REAL,
-                    data_value_kind     TEXT,
-                    start_day           TEXT,
-                    end_day             TEXT,
-                    last_synced_at      TEXT DEFAULT (datetime('now'))
                 );
 
                 CREATE TABLE IF NOT EXISTS tech_forecast_snapshots (
