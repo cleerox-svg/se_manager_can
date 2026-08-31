@@ -35,6 +35,18 @@ class Database:
             con.rollback()
             raise
 
+    def _migrate(self, c: sqlite3.Connection):
+        cols = {row["name"] for row in c.execute("PRAGMA table_info(se_reps)")}
+        if "arr_target" not in cols:
+            c.execute("ALTER TABLE se_reps ADD COLUMN arr_target REAL DEFAULT 0")
+
+        cols = {row["name"] for row in c.execute("PRAGMA table_info(tech_forecast_deals)")}
+        if "assigned_se_rep_id" not in cols:
+            c.execute(
+                "ALTER TABLE tech_forecast_deals "
+                "ADD COLUMN assigned_se_rep_id INTEGER REFERENCES se_reps(id)"
+            )
+
     def init(self):
         with self.conn() as c:
             c.executescript("""
@@ -126,6 +138,32 @@ class Database:
                     last_synced_at           TEXT DEFAULT (datetime('now'))
                 );
 
+                CREATE TABLE IF NOT EXISTS clari_ae_snapshots (
+                    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                    sync_key            TEXT UNIQUE,
+                    source_label        TEXT,
+                    ae_name             TEXT,
+                    ae_email            TEXT,
+                    role                TEXT,
+                    parent_role         TEXT,
+                    field               TEXT,
+                    data_type           TEXT,
+                    data_value          TEXT,
+                    data_value_numeric  REAL,
+                    data_value_kind     TEXT,
+                    start_day           TEXT,
+                    end_day             TEXT,
+                    last_synced_at      TEXT DEFAULT (datetime('now'))
+                );
+
+                CREATE TABLE IF NOT EXISTS tech_forecast_snapshots (
+                    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                    snapshot_date      TEXT UNIQUE,
+                    bucket_totals_json TEXT,
+                    deal_states_json   TEXT,
+                    created_at         TEXT DEFAULT (datetime('now'))
+                );
+
                 CREATE TABLE IF NOT EXISTS reviews (
                     id         INTEGER PRIMARY KEY AUTOINCREMENT,
                     se_rep_id  INTEGER REFERENCES se_reps(id) ON DELETE CASCADE,
@@ -142,6 +180,7 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_slack_notes_se_rep ON slack_notes(se_rep_id);
                 CREATE INDEX IF NOT EXISTS idx_closed_deals_se_rep ON closed_deals(se_rep_id);
             """)
+            self._migrate(c)
 
     def get_setting(self, key: str, default=None):
         with self.conn() as c:

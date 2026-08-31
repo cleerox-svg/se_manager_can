@@ -53,6 +53,33 @@ function stageBadge(stage) {
   return `<span class="badge ${cls}">${stage || '-'}</span>`;
 }
 
+/* ── ARR vs target ───────────────────────────────────────────────────────── */
+function arrGoalBar(total, target) {
+  total = total || 0;
+  const t = target || 0;
+  const met = t > 0 && total >= t;
+  const fillPct = t > 0 ? Math.min(100, (total / t) * 100) : 0;
+  const pct = t > 0 ? Math.round((total / t) * 100) : null;
+  return `
+    <div class="goal-bar-wrap">
+      <div class="goal-bar">
+        <div class="goal-bar-fill ${met ? 'met' : ''}" style="width:${fillPct}%"></div>
+        ${t > 0 ? '<div class="goal-bar-tick"></div>' : ''}
+      </div>
+      <div class="goal-bar-label">
+        <span>${fmtMoney(total)}${t > 0 ? ' / ' + fmtMoney(t) : ''}</span>
+        ${pct != null ? `<span class="pct ${met ? 'met' : ''}">${pct}%</span>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+function reviewStatusBadge(status) {
+  if (status === 'final') return '<span class="badge badge-green">Final</span>';
+  if (status === 'draft') return '<span class="badge badge-blue">Draft</span>';
+  return '<span class="badge badge-muted">Not started</span>';
+}
+
 /* ── Dashboard ───────────────────────────────────────────────────────────── */
 async function renderDashboard() {
   const params = new URLSearchParams({ quarter: state.quarterFilter });
@@ -130,19 +157,42 @@ function debounce(fn, ms) {
 async function renderTeam() {
   state.reps = await API.get('/api/reps');
   const el = document.getElementById('team-content');
+  const period = state.reps[0]?.review_period || '';
 
   el.innerHTML = `
     <div class="card">
       <table>
-        <thead><tr><th>Name</th><th>Title</th><th>Deals</th><th>Status</th><th></th></tr></thead>
+        <thead><tr>
+          <th>Name</th><th>Title</th><th>Deals</th><th>Tech Forecast ARR</th>
+          <th>ARR vs Target (${period})</th><th>Review (${period})</th><th>Status</th><th></th>
+        </tr></thead>
         <tbody>
           ${state.reps.map(r => `
             <tr class="clickable ${r.active ? '' : 'inactive-flag'}" onclick="navigate('person', ${r.id})">
               <td>${r.name}</td>
               <td>${r.title || '-'}</td>
               <td>${r.deal_count}</td>
+              <td>${fmtMoney(r.tech_forecast_arr)}</td>
+              <td onclick="event.stopPropagation()">
+                ${arrGoalBar(r.arr_total, r.arr_target)}
+                <input type="number" class="goal-bar-target-input" value="${r.arr_target || ''}"
+                  placeholder="Target" onchange="updateRepTarget(${r.id}, this.value)" />
+              </td>
+              <td onclick="event.stopPropagation(); toggleReviewRow(${r.id})" style="cursor:pointer">
+                ${reviewStatusBadge(r.review_status)}
+              </td>
               <td>${r.active ? '<span class="badge badge-green">Active</span>' : '<span class="badge badge-muted">Inactive / departed</span>'}</td>
               <td><button class="btn" onclick="event.stopPropagation(); toggleRepActive(${r.id}, ${r.active ? 0 : 1})">${r.active ? 'Mark inactive' : 'Mark active'}</button></td>
+            </tr>
+            <tr id="review-row-${r.id}" class="review-inline-row" style="display:none">
+              <td colspan="8">
+                <div class="filter-row">
+                  <button class="btn btn-primary" onclick="teamGenerateReview(${r.id}, '${period}')">Generate draft from deals + Slack</button>
+                  <button class="btn" onclick="teamSaveReview(${r.id}, '${period}', 'draft')">Save draft</button>
+                  <button class="btn" onclick="teamSaveReview(${r.id}, '${period}', 'final')">Mark final</button>
+                </div>
+                <textarea id="review-text-${r.id}" placeholder="Click 'Generate draft' or write manually...">${r.review_content || ''}</textarea>
+              </td>
             </tr>
           `).join('')}
         </tbody>
@@ -154,6 +204,32 @@ async function renderTeam() {
 async function toggleRepActive(repId, active) {
   await API.post(`/api/reps/${repId}`, { active });
   toast('Updated', 'success');
+  renderTeam();
+}
+
+async function updateRepTarget(repId, value) {
+  await API.post(`/api/reps/${repId}`, { arr_target: Number(value) || 0 });
+  toast('Target updated', 'success');
+  renderTeam();
+}
+
+function toggleReviewRow(repId) {
+  const row = document.getElementById(`review-row-${repId}`);
+  row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+}
+
+async function teamGenerateReview(repId, period) {
+  toast('Generating draft...');
+  const res = await API.post(`/api/reps/${repId}/reviews/${period}/generate`, {});
+  if (res.error) { toast(res.error, 'error'); return; }
+  document.getElementById(`review-text-${repId}`).value = res.content;
+  toast('Draft generated', 'success');
+}
+
+async function teamSaveReview(repId, period, status) {
+  const content = document.getElementById(`review-text-${repId}`).value;
+  await API.post(`/api/reps/${repId}/reviews/${period}`, { content, status });
+  toast(status === 'final' ? 'Marked final' : 'Saved', 'success');
   renderTeam();
 }
 
@@ -174,11 +250,31 @@ function forecastStatusBadge(status) {
   return `<span class="badge ${map[status] || 'badge-muted'}">${status || '-'}</span>`;
 }
 
+function coverageBadge(ratioStr) {
+  if (ratioStr == null || ratioStr === '') return `<span class="badge badge-muted">-</span>`;
+  const n = parseFloat(ratioStr);
+  const cls = isNaN(n) ? 'badge-muted' : (n >= 1 ? 'badge-green' : 'badge-red');
+  return `<span class="badge ${cls}">${ratioStr}</span>`;
+}
+
 function dealFlags(d, threshold) {
   return `
     ${d.amount >= threshold ? '<span class="badge badge-purple">Must-Win</span>' : ''}
     ${d.notes_stale ? '<span class="badge badge-amber">No update this week</span>' : ''}
+    ${!d.pre_sales_notes ? '<span class="badge badge-amber">No TW Strategy</span>' : ''}
   `;
+}
+
+function seAssignSelect(d) {
+  const options = [`<option value="" ${!d.effective_se_rep_id ? 'selected' : ''}>Unassigned</option>`]
+    .concat(state.reps.map(r => `<option value="${r.id}" ${d.effective_se_rep_id === r.id ? 'selected' : ''}>${r.name}</option>`));
+  return `<select class="se-assign-select" onchange="assignSe('${encodeURIComponent(d.sheet_key)}', this.value)">${options.join('')}</select>`;
+}
+
+async function assignSe(encodedSheetKey, value) {
+  await API.post(`/api/tech-forecast/${encodedSheetKey}/assign-se`, { se_rep_id: value ? Number(value) : null });
+  toast('SE assignment updated', 'success');
+  renderTechForecast();
 }
 
 function notesCell(text, maxWidth) {
@@ -195,6 +291,7 @@ function inspectRow(d, threshold) {
       <td>${forecastStatusBadge(d.forecast_status)}</td>
       <td>${d.technical_win_date || '-'}</td>
       <td>${fmtMoney(d.amount)}</td>
+      <td>${seAssignSelect(d)}</td>
       <td><div class="pill-row">${dealFlags(d, threshold)}</div></td>
       ${notesCell(d.pre_sales_notes, 220)}
       ${notesCell(d.se_manager_notes, 220)}
@@ -208,7 +305,7 @@ function inspectTable(deals, threshold) {
       <table>
         <thead><tr>
           <th>Opportunity</th><th>Stage</th><th>Presales Stage</th><th>Forecast Status</th>
-          <th>Tech win date</th><th>Amount</th><th>Flags</th><th>Pre-sales next steps</th><th>SE manager notes</th>
+          <th>Tech win date</th><th>Amount</th><th>SE</th><th>Flags</th><th>Pre-sales next steps</th><th>SE manager notes</th>
         </tr></thead>
         <tbody>${deals.map(d => inspectRow(d, threshold)).join('')}</tbody>
       </table>
@@ -216,8 +313,41 @@ function inspectTable(deals, threshold) {
   `;
 }
 
+function aeCrossrefTable(crossref) {
+  return `
+    <div class="table-scroll">
+      <table>
+        <thead><tr>
+          <th>AE</th><th>Quota</th><th>Auth0 Forecast</th><th>Auth0 Gap</th>
+          <th>Okta Forecast</th><th>Okta Gap</th><th>Coverage vs Quota</th><th>Coverage vs Forecast</th>
+          <th>Open Tech Pipeline</th>
+        </tr></thead>
+        <tbody>
+          ${crossref.map(a => `
+            <tr>
+              <td>${a.ae_name}</td>
+              <td>${fmtMoney(a.quota_amount)}</td>
+              <td>${fmtMoney(a.forecast_auth_amount)}</td>
+              <td>${fmtMoney(a.gap_auth_derived)}</td>
+              <td>${fmtMoney(a.forecast_okta_amount)}</td>
+              <td>${fmtMoney(a.gap_okta_derived)}</td>
+              <td>${coverageBadge(a.coverage_vs_quota_blended)}</td>
+              <td>${coverageBadge(a.coverage_vs_forecast_blended)}</td>
+              <td>${fmtMoney(a.open_tech_pipeline_amount)} <span style="color:var(--text-muted);font-size:.68rem">(${a.open_tech_pipeline_count})</span></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
 async function renderTechForecast() {
-  const data = await API.get('/api/tech-forecast');
+  const [data, crossref] = await Promise.all([
+    API.get('/api/tech-forecast'),
+    API.get('/api/tech-forecast/ae-crossref'),
+  ]);
+  state.reps = await API.get('/api/reps');
   const threshold = data.must_win_threshold;
   const deals = data.deals;
 
@@ -249,6 +379,11 @@ async function renderTechForecast() {
       <div class="stat-card"><div class="stat-value">${mustWins.length}</div><div class="stat-label">Must-Wins ($150K+) — ${fmtMoney(mustWins.reduce((s, d) => s + (d.amount || 0), 0))}</div></div>
       <div class="stat-card"><div class="stat-value">${riskDeals.length}</div><div class="stat-label">Forecasted Risk</div></div>
       <div class="stat-card"><div class="stat-value">${staleDeals.length}</div><div class="stat-label">No update this week</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">AE Forecast Coverage (Clari)</div>
+      ${crossref.length ? aeCrossrefTable(crossref) : '<div class="empty-state">No Clari export synced yet — drop this week\'s CSVs in Clari Reporting and ask Claude to sync</div>'}
     </div>
 
     <div class="card">
@@ -286,13 +421,14 @@ async function renderTechForecast() {
       <div class="card-title">Wrap-Up &amp; Risk (${wrapUpDeals.length})</div>
       ${wrapUpDeals.length ? `
         <table>
-          <thead><tr><th>Opportunity</th><th>Forecast Status</th><th>Amount</th><th>Flags</th></tr></thead>
+          <thead><tr><th>Opportunity</th><th>Forecast Status</th><th>Amount</th><th>SE</th><th>Flags</th></tr></thead>
           <tbody>
             ${wrapUpDeals.map(d => `
               <tr>
-                <td>${d.opportunity_name}</td>
+                <td>${d.opportunity_name}<div style="color:var(--text-muted);font-size:.72rem">AE: ${d.opportunity_owner || '-'}</div></td>
                 <td>${forecastStatusBadge(d.forecast_status)}</td>
                 <td>${fmtMoney(d.amount)}</td>
+                <td>${seAssignSelect(d)}</td>
                 <td><div class="pill-row">${dealFlags(d, threshold)}</div></td>
               </tr>
             `).join('')}
@@ -325,7 +461,7 @@ async function renderPerson(repId) {
     <div class="tabs">
       <button class="tab-btn active" data-tab="deals">Deals (${deals.length})</button>
       <button class="tab-btn" data-tab="slack">Slack activity (${notes.length})</button>
-      <button class="tab-btn" data-tab="review">Review draft — ${period}</button>
+      <button class="tab-btn" data-tab="review">Review draft — ${period} ${reviewStatusBadge(review?.status)}</button>
     </div>
     <div id="tab-deals" class="tab-panel">
       <div class="card">
@@ -341,9 +477,14 @@ async function renderPerson(repId) {
       ${notes.map(n => `<div class="slack-note"><div class="meta">#${n.channel_name || n.channel_id} · ${n.posted_at || ''}</div>${n.text || ''}</div>`).join('') || '<div class="empty-state">No Slack activity synced yet</div>'}
     </div>
     <div id="tab-review" class="tab-panel" style="display:none">
+      <div class="card">
+        <div class="card-title">ARR — full fiscal year vs target</div>
+        ${arrGoalBar(rep.arr_total, rep.arr_target)}
+      </div>
       <div class="filter-row">
         <button class="btn btn-primary" id="generate-review-btn">Generate draft from deals + Slack</button>
         <button class="btn" id="save-review-btn">Save draft</button>
+        <button class="btn" id="mark-final-btn">Mark final</button>
       </div>
       <textarea id="review-text" placeholder="Click 'Generate draft' or write manually...">${review?.content || ''}</textarea>
     </div>
@@ -369,6 +510,12 @@ async function renderPerson(repId) {
     const content = document.getElementById('review-text').value;
     await API.post(`/api/reps/${repId}/reviews/${period}`, { content, status: 'draft' });
     toast('Saved', 'success');
+  };
+  document.getElementById('mark-final-btn').onclick = async () => {
+    const content = document.getElementById('review-text').value;
+    await API.post(`/api/reps/${repId}/reviews/${period}`, { content, status: 'final' });
+    toast('Marked final', 'success');
+    renderPerson(repId);
   };
 }
 

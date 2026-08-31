@@ -13,9 +13,15 @@ Opportunity Name (true for every subtotal/total row at every level, so it
 alone is a reliable skip check).
 
 This tab has no per-rep column at all (it's grouped by AE region, not by
-SE), so unlike `deals`/`closed_deals` there's no `se_rep_id` attribution
-here — it covers the whole country's technical pipeline, not just the
-Claude Leroux's four tracked direct reports.
+SE), so unlike `deals`/`closed_deals` there's no `se_rep_id` column stored
+on `tech_forecast_deals` — it covers the whole country's technical
+pipeline, not just Claude Leroux's four tracked direct reports. SE
+attribution for the Team page and Technical Forecast page is instead
+derived live, in `app.py`, by matching each row's Opportunity Name against
+`deals.opportunity_name` (which does carry `se_rep_id`) — not stored here,
+so it always reflects the current `deals` table. Around 90% of current
+rows match; unmatched rows (a deal that's since dropped off the open
+pipeline) fall back to AE-only display.
 
 Pre-Sales Next Steps is freeform, hand-typed text with no reliable
 structured date. To flag "no update this week" we diff each row's
@@ -24,8 +30,11 @@ Pre-Sales Next Steps against the value it held as of the *previous* sync
 text.
 """
 
+import json
 import re
-from datetime import datetime
+from datetime import date, datetime
+
+import tech_forecast_report as report
 
 _HEADER_MAP = {
     "Account Owner AVP Region": "region",
@@ -177,7 +186,32 @@ def load_rows(db, rows: list[dict]) -> dict:
             c.execute(f"DELETE FROM tech_forecast_deals WHERE sheet_key NOT IN ({placeholders})", seen_keys)
 
     db.set_setting("tech_forecast_last_synced_at", datetime.now().isoformat())
+    _capture_snapshot(db)
     return {"synced": len(rows)}
+
+
+def _capture_snapshot(db):
+    """Records today's bucket totals + per-deal state so
+    `tech_forecast_report.build_weekly_deltas` has a baseline to diff the
+    *next* sync against. Upserts on `snapshot_date` so re-running a sync
+    same-day (e.g. a fixup re-ingest) doesn't create a second baseline."""
+    with db.conn() as c:
+        rows = [
+            dict(r) for r in c.execute(
+                "SELECT sheet_key, opportunity_name, amount, presales_stage, forecast_status "
+                "FROM tech_forecast_deals"
+            ).fetchall()
+        ]
+    deal_states = {r["sheet_key"]: r for r in rows}
+    bucket_totals = report.aggregate_buckets(rows)
+    with db.conn() as c:
+        c.execute("""
+            INSERT INTO tech_forecast_snapshots (snapshot_date, bucket_totals_json, deal_states_json)
+            VALUES (?, ?, ?)
+            ON CONFLICT(snapshot_date) DO UPDATE SET
+                bucket_totals_json = excluded.bucket_totals_json,
+                deal_states_json = excluded.deal_states_json
+        """, (date.today().isoformat(), json.dumps(bucket_totals), json.dumps(deal_states)))
 
 
 def sync_tech_forecast_from_values(db, values: list[list[str]]) -> dict:

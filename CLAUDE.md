@@ -111,6 +111,60 @@ fails with `ModuleNotFoundError: No module named 'gspread'` even though
 running ingest/sync scripts from Claude Code, rather than assuming the venv
 is on PATH.
 
+## Clari manual local-file sync
+
+Clari (AE-level quota/forecast/pipeline-coverage tool) has no MCP/API
+surface reachable from this app, so `clari_sync.py` skips the
+fetch-vs-load split the MCP-assisted scripts use and just reads a local
+file directly — there is no automated or scheduled path, this is always a
+manual, chat-mediated flow:
+
+1. Claude Leroux drops the week's two CSV exports (This Quarter / Next
+   Quarter) into `C:\Users\ClaudeLeroux\Desktop\Claude Code Projects\Clari
+   Reporting\` (override via `CLARI_EXPORT_DIR` env var).
+2. Ask Claude to sync; it runs
+   `venv/Scripts/python.exe clari_sync.py this_quarter` and
+   `... next_quarter` (same venv-not-on-PATH caveat as other scripts — `py`
+   resolves to the global interpreter in a fresh Bash session).
+3. `clari_sync.py` globs the folder for the newest filename containing
+   "this quarter"/"next quarter" (case/underscore-insensitive) rather than
+   trusting a hardcoded date-stamped name.
+
+The export is AE-level, not deal-level — a long/tidy weekly time series
+per AE (Field, Data Type, Week, Start Day, End Day, Data Value) with zero
+opportunity- or SE-level identifiers. The one clean join key is `User`,
+which is an exact string match for `tech_forecast_deals.opportunity_owner`
+(confirmed live — e.g. "Ahmed Majid", "Dylan Amin", "Ryan Nell" appear in
+both). Only the `(Field, Data Type)` pairs in
+`tech_forecast_report.CLARI_ALLOWED_PAIRS` are kept — most combinations
+(freeform Notes/Adjustment Notes, "Forecast Updated" Yes/No, etc.) carry no
+identifiers of use here.
+
+`Timeframe` has a dual role that's easy to miss: Clari exports a monthly
+breakdown for `Forecast`/`Forecast [Auth]`/`Forecast [Okta]` (Timeframe
+values like "August FY 2027") *alongside* a quarterly rollup ("Q3"/"Q4" —
+the label shifts by fiscal quarter, so `clari_sync.py` matches the bare
+`^Q\d+$` pattern rather than hardcoding one). Every other field only ever
+has the quarterly-rollup row. Only the rollup row is kept, so this always
+reports the AE's whole-quarter numbers. The Auth0/Okta split on `Forecast`
+itself is native to Clari (`Forecast [Auth]`/`Forecast [Okta]`, Data Type
+`Forecast Value`) — only `Gap to Forecast` and the two `Coverage` fields
+are blended-only in Clari, so those two are *derived* in
+`build_ae_crossref` (quota minus that product's native forecast) rather
+than read directly; they're suffixed `_derived`/`_blended` in the
+crossref payload so callers don't mistake them for a number Clari itself
+reports.
+
+Week index isn't trustworthy on its own (it resets/shifts across
+exports) — rows are matched against *today's* date falling within Start
+Day/End Day instead. `clari_ae_snapshots` is scoped to
+`WHERE source_label = ?` on delete (both This Quarter and Next Quarter
+share one table, so an unscoped delete would wipe one label's rows while
+loading the other), and a zero-row sync (e.g. run on a day outside any
+week's date window — expected for Next Quarter's file until its first week
+starts) skips the delete step entirely rather than zeroing that label's
+data.
+
 ## Git workflow
 
 **No GitHub for now** — work stays local only. Local `git commit` is fine;
@@ -130,9 +184,12 @@ chunks with a visible task list.
 | `db.py` | SQLite schema + thread-local connections |
 | `sheets_sync.py` | Google Sheets "Lead SE Pipeline SFDC" tab → `deals` table |
 | `closed_deals_sync.py` | Google Sheets "Canada SE Closed This Fiscal Year" tab (closed-won/technical-win export) → `closed_deals` table |
-| `tech_forecast_sync.py` | Google Sheets "Satish Technical Forecast Current Q" tab (Technical Forecast pipeline) → `tech_forecast_deals` table |
+| `tech_forecast_sync.py` | Google Sheets "Satish Technical Forecast Current Q" tab (Technical Forecast pipeline) → `tech_forecast_deals` table; also captures the daily snapshot used for week-over-week deltas |
+| `tech_forecast_report.py` | Pure aggregation/report logic for the Technical Forecast page + Slack preread (bucket totals, key metrics, top deals, weekly deltas, AE cross-reference) — no Flask dependency, reused by `app.py` and `tech_forecast_sync.py` |
+| `clari_sync.py` | Manual local-file parser — weekly Clari AE-level CSV export (`Clari Reporting\` folder) → `clari_ae_snapshots` table |
 | `slack_sync.py` | Slack `search.messages` → `slack_notes` table |
 | `mcp_ingest.py` | CLI bridge — loads MCP-fetched JSON into the DB, no credentials needed |
+| `seed_arr_targets.py` | One-off: sets `se_reps.arr_target` by name (FY26 H2: Sean/Rishika $2.5M, Valentin/Nic $1.5M) |
 | `reviews.py` | LiteLLM-backed review drafting |
 | `static/style.css` | Okta dark theme (shared tokens with NaughtRFP) |
 | `static/app.js` | SPA frontend — router, API helper, page renderers |

@@ -7,6 +7,7 @@ from flask import Flask, jsonify, render_template, request
 import reviews
 import sheets_sync
 import slack_sync
+import tech_forecast_report as report
 from db import Database
 
 load_dotenv()
@@ -31,6 +32,12 @@ def current_quarter() -> str:
     return f"{now.year}-Q{q}"
 
 
+def current_half() -> str:
+    now = datetime.now()
+    half = 1 if now.month <= 6 else 2
+    return f"{now.year}-H{half}"
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -46,28 +53,38 @@ def get_settings():
         "sheet_id": SHEET_ID,
         "deals_last_synced_at": db.get_setting("deals_last_synced_at"),
         "current_quarter": current_quarter(),
+        "current_review_period": current_half(),
     })
 
 
 # ── SE reps ──────────────────────────────────────────────────────────────
 @app.route("/api/reps")
 def list_reps():
+    period = current_half()
     with db.conn() as c:
         rows = c.execute("""
-            SELECT r.*, COUNT(d.id) AS deal_count
+            SELECT r.*,
+                (SELECT COUNT(*) FROM deals d WHERE d.se_rep_id = r.id) AS deal_count,
+                (SELECT COALESCE(SUM(amount), 0) FROM closed_deals cd
+                    WHERE cd.se_rep_id = r.id) AS arr_total,
+                (SELECT COALESCE(SUM(tf.amount), 0) FROM tech_forecast_deals tf
+                    WHERE tf.opportunity_name IN (
+                        SELECT d2.opportunity_name FROM deals d2 WHERE d2.se_rep_id = r.id
+                    )) AS tech_forecast_arr,
+                rv.status AS review_status,
+                rv.content AS review_content
             FROM se_reps r
-            LEFT JOIN deals d ON d.se_rep_id = r.id
-            GROUP BY r.id
+            LEFT JOIN reviews rv ON rv.se_rep_id = r.id AND rv.period = ?
             ORDER BY r.active DESC, r.name
-        """).fetchall()
-    return jsonify([dict(r) for r in rows])
+        """, (period,)).fetchall()
+    return jsonify([dict(r) | {"review_period": period} for r in rows])
 
 
 @app.route("/api/reps/<int:rep_id>", methods=["POST"])
 def update_rep(rep_id):
     data = request.get_json(force=True)
     fields, values = [], []
-    for key in ("active", "slack_user_id", "email", "title", "notes"):
+    for key in ("active", "slack_user_id", "email", "title", "notes", "arr_target"):
         if key in data:
             fields.append(f"{key} = ?")
             values.append(data[key])
@@ -129,30 +146,72 @@ def list_deals():
 
 
 # ── Technical Forecast ──────────────────────────────────────────────────
-MUST_WIN_THRESHOLD = 150000
-
-
 @app.route("/api/tech-forecast")
 def tech_forecast():
     with db.conn() as c:
-        deals = c.execute("SELECT * FROM tech_forecast_deals ORDER BY amount DESC").fetchall()
+        # tech_forecast_deals carries no SE attribution of its own (it's grouped by AE/
+        # region, not by SE) — infer it live by matching Opportunity Name against `deals`,
+        # which does carry se_rep_id. Not every row matches (e.g. a deal that's since
+        # dropped off the open pipeline); those fall back to "Unassigned" below unless
+        # Claude Leroux has set an explicit assigned_se_rep_id override, which always wins.
+        deal_rows = c.execute("""
+            SELECT tf.*,
+                (SELECT d.se_rep_id FROM deals d
+                    WHERE d.opportunity_name = tf.opportunity_name
+                    ORDER BY d.id LIMIT 1) AS attributed_se_id
+            FROM tech_forecast_deals tf
+            ORDER BY tf.amount DESC
+        """).fetchall()
         closed_wins = c.execute(
-            "SELECT * FROM closed_deals WHERE tech_win = 1 ORDER BY close_date DESC LIMIT 15"
+            "SELECT * FROM closed_deals WHERE tech_win = 1 ORDER BY amount DESC"
         ).fetchall()
+        reps_by_id = {r["id"]: r["name"] for r in c.execute("SELECT id, name FROM se_reps")}
+
+    deals = []
+    for r in deal_rows:
+        d = dict(r)
+        effective_se_id = d["assigned_se_rep_id"] or d["attributed_se_id"]
+        d["attributed_se_name"] = reps_by_id.get(d["attributed_se_id"])
+        d["effective_se_rep_id"] = effective_se_id
+        d["effective_se_name"] = reps_by_id.get(effective_se_id, "Unassigned") if effective_se_id else "Unassigned"
+        deals.append(d)
 
     recent_wins = [dict(r) | {"source": "closed", "win_date": r["close_date"]} for r in closed_wins]
     recent_wins += [
-        dict(r) | {"source": "open", "win_date": r["technical_win_date"] or r["close_date"]}
+        r | {"source": "open", "win_date": r["technical_win_date"] or r["close_date"]}
         for r in deals if r["presales_stage"] == "6 - Technical Win"
     ]
-    recent_wins.sort(key=lambda r: r.get("win_date") or "", reverse=True)
+    recent_wins.sort(key=lambda r: r.get("amount") or 0, reverse=True)
 
     return jsonify({
-        "deals": [dict(r) for r in deals],
+        "deals": deals,
         "recent_wins": recent_wins[:12],
-        "must_win_threshold": MUST_WIN_THRESHOLD,
+        "must_win_threshold": report.MUST_WIN_THRESHOLD,
         "last_synced_at": db.get_setting("tech_forecast_last_synced_at"),
     })
+
+
+@app.route("/api/tech-forecast/ae-crossref")
+def tech_forecast_ae_crossref():
+    return jsonify(report.build_ae_crossref(db))
+
+
+@app.route("/api/tech-forecast/preread")
+def tech_forecast_preread():
+    limit = int(request.args.get("limit", 10))
+    return jsonify(report.build_preread(db, limit=limit))
+
+
+@app.route("/api/tech-forecast/<path:sheet_key>/assign-se", methods=["POST"])
+def assign_tech_forecast_se(sheet_key):
+    data = request.get_json(force=True)
+    se_rep_id = data.get("se_rep_id") or None
+    with db.conn() as c:
+        c.execute(
+            "UPDATE tech_forecast_deals SET assigned_se_rep_id = ? WHERE sheet_key = ?",
+            (se_rep_id, sheet_key),
+        )
+    return jsonify({"ok": True})
 
 
 # ── Sync ─────────────────────────────────────────────────────────────────
