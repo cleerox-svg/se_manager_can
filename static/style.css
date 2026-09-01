@@ -148,6 +148,15 @@ td { padding: 10px 10px; border-bottom: 1px solid var(--border); vertical-align:
 tr:hover td { background: var(--bg-card-hover); }
 tr.clickable { cursor: pointer; }
 
+/* ── Grouped tables (e.g. Look Back — Recent Technical Wins) ────────────── */
+.group-header {
+  font-size: .74rem; font-weight: 700; color: var(--text-secondary);
+  text-transform: uppercase; letter-spacing: .04em;
+  margin: 16px 0 8px; padding-top: 12px; border-top: 1px solid var(--border);
+}
+.group-header.is-first { margin-top: 0; padding-top: 0; border-top: none; }
+.group-subheader { font-size: .78rem; font-weight: 600; color: var(--text-primary); margin: 10px 0 6px; }
+
 /* ── Badges ──────────────────────────────────────────────────────────────── */
 .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 20px; font-size: .68rem; font-weight: 600; white-space: nowrap; }
 .badge-blue   { background: var(--okta-blue-dim); color: var(--okta-blue-lt); }

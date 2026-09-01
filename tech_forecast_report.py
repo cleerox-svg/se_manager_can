@@ -41,6 +41,27 @@ _BUCKET_ORDER = {
 _EXCLUDED_TOP_DEAL_BUCKETS = ("Technical Win", "Final Due Diligence")
 
 
+def fiscal_quarter(iso_date):
+    """Okta's fiscal year runs Feb 1 - Jan 31, named by its start year
+    (e.g. FY26 = Feb 2026 - Jan 2027). Used for the Look Back grouping —
+    unrelated to app.py's current_quarter()/sheets_sync.py's _quarter(),
+    which are plain calendar quarters for a different feature (the open
+    SFDC pipeline's "current quarter" filter)."""
+    if not iso_date:
+        return None
+    d = datetime.strptime(iso_date[:10], "%Y-%m-%d")
+    fy_year = d.year if d.month >= 2 else d.year - 1
+    fq = ((d.month - 2) % 12) // 3 + 1
+    return f"FY{fy_year % 100:02d}-Q{fq}"
+
+
+def fiscal_quarter_sort_key(label):
+    """Higher key = more recent quarter; None/unknown sorts last."""
+    if not label:
+        return (-1, -1)
+    return (int(label[2:4]), int(label[-1]))
+
+
 def stage_bucket(presales_stage):
     if not presales_stage:
         return "Untagged"
@@ -222,6 +243,64 @@ def build_weekly_deltas(db):
 
     deltas.sort(key=lambda d: d.get("amount") or 0, reverse=True)
     return deltas
+
+
+def build_slack_draft(preread):
+    """Template-formatted Slack message for the weekly Tech Forecast call —
+    deliberately not LLM-drafted (no LITELLM_API_KEY configured yet); every
+    fact here already exists on the preread payload, so this is pure string
+    formatting. Swapping in an LLM polish pass later (reusing reviews.py's
+    _make_client) only needs to change this one function."""
+    lines = [
+        f"*Tech Forecast Call Prep — {datetime.now():%B} {datetime.now().day}, {datetime.now():%Y}*",
+        "",
+        preread["executive_takeaway"],
+        "",
+        "*Key metrics:*",
+    ]
+
+    m = preread["key_metrics"]
+    lines += [
+        f"- Total active pipeline: ${m['total_active_pipeline_amount']:,.0f} "
+        f"({m['total_active_pipeline_count']} deals)",
+        f"- Technical Wins secured: ${m['total_tech_won_amount']:,.0f} "
+        f"({m['total_tech_won_pct']:.0%}, {m['total_tech_won_count']} deals)",
+        f"- In active SE engagement: ${m['in_flight_amount']:,.0f} ({m['in_flight_count']} deals)",
+        f"- Untagged, needs triage: ${m['untagged_amount']:,.0f} ({m['untagged_count']} deals)",
+        "",
+    ]
+
+    top_deals = preread["top_deals"][:5]
+    lines.append("*Come ready to discuss:*")
+    if top_deals:
+        for d in top_deals:
+            owner = d["opportunity_owner"] or "no AE on file"
+            lines.append(
+                f"- {d['opportunity_name']} — ${d['amount']:,.0f} "
+                f"({d['presales_stage'] or 'Untagged'}, AE: {owner})"
+            )
+    else:
+        lines.append("- Nothing outstanding — pipeline is caught up.")
+    lines.append("")
+
+    needs_lead_se = preread["needs_lead_se"]
+    if needs_lead_se:
+        lines.append("*Needs a Lead SE — please claim one if it's yours:*")
+        for d in needs_lead_se:
+            lines.append(f"- {d['opportunity_name']} — ${d['amount']:,.0f} (AE: {d['opportunity_owner'] or '-'})")
+        lines.append("")
+
+    lines.append("*Since last sync:*")
+    deltas = preread["weekly_deltas"]
+    if deltas:
+        for d in deltas[:8]:
+            lines.append(f"- {d['opportunity_name']}: {d['detail']}")
+    else:
+        lines.append("- No changes since last sync yet.")
+    lines.append("")
+
+    lines.append("See you Monday — come prepared with an update on your deals above. 🙌")
+    return "\n".join(lines)
 
 
 def build_preread(db, limit=10):

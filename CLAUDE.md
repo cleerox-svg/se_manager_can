@@ -128,6 +128,18 @@ fails with `ModuleNotFoundError: No module named 'gspread'` even though
 running ingest/sync scripts from Claude Code, rather than assuming the venv
 is on PATH.
 
+## Fiscal quarters
+
+Okta's fiscal year starts **Feb 1**, not Jan 1 — FY26 runs Feb 2026 through
+Jan 2027, named by its start year. `tech_forecast_report.fiscal_quarter()`
+implements this (`FY<start-year>-Q<n>`, e.g. Aug 2026 → `FY26-Q3`) and powers
+the Look Back — Recent Technical Wins grouping. This is deliberately
+separate from `app.py`'s `current_quarter()` and `sheets_sync.py`'s
+`_quarter()`, which are plain calendar quarters (Jan-Mar = Q1, etc.) used for
+the open SFDC pipeline's "current quarter" filter — a different feature with
+its own (calendar-based) notion of quarter. Don't unify these without
+checking which behavior each caller actually needs.
+
 ## Git workflow
 
 **No GitHub for now** — work stays local only. Local `git commit` is fine;

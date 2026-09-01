@@ -329,6 +329,63 @@ function needsLeadSeTable(rows) {
   `;
 }
 
+/* ── Look Back — Recent Technical Wins (grouped by quarter → SE) ────────── */
+function groupBy(arr, keyFn) {
+  // Sequential grouping — relies on `arr` already being sorted by the same
+  // key (as recent_wins is, from the backend), so a single pass is enough.
+  const groups = [];
+  let current = null;
+  for (const item of arr) {
+    const key = keyFn(item);
+    if (!current || current.key !== key) {
+      current = { key, items: [] };
+      groups.push(current);
+    }
+    current.items.push(item);
+  }
+  return groups;
+}
+
+function recentWinFlags(w) {
+  return `${w.source === 'open' && w.notes_stale ? '<span class="badge badge-amber">No new notes</span>' : ''}`;
+}
+
+function recentWinRow(w) {
+  return `
+    <tr>
+      <td>${w.opportunity_name}${w.source === 'open' ? `<div style="color:var(--text-muted);font-size:.72rem">AE: ${w.opportunity_owner || '-'}</div>` : ''}</td>
+      <td>${w.win_date || '-'}</td>
+      <td>${fmtMoney(w.amount)}</td>
+      <td><span class="badge ${w.source === 'closed' ? 'badge-green' : 'badge-blue'}">${w.source === 'closed' ? 'Closed win' : 'Tech win (open)'}</span></td>
+      <td><div class="pill-row">${recentWinFlags(w)}</div></td>
+    </tr>
+  `;
+}
+
+function renderRecentWinsGrouped(wins) {
+  const quarterGroups = groupBy(wins, w => w.fiscal_quarter || 'Unknown');
+  return quarterGroups.map((qg, qi) => {
+    const qTotal = qg.items.reduce((s, w) => s + (w.amount || 0), 0);
+    const seGroups = groupBy(qg.items, w => w.se_name);
+    return `
+      <div class="group-header${qi === 0 ? ' is-first' : ''}">${qg.key} · ${qg.items.length} win${qg.items.length === 1 ? '' : 's'} · ${fmtMoney(qTotal)}</div>
+      ${seGroups.map(sg => {
+        const seTotal = sg.items.reduce((s, w) => s + (w.amount || 0), 0);
+        const noSe = sg.items[0].no_se;
+        return `
+          <div class="group-subheader">${sg.key} · ${sg.items.length} win${sg.items.length === 1 ? '' : 's'} · ${fmtMoney(seTotal)} ${noSe ? '<span class="badge badge-amber">No SE</span>' : ''}</div>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Opportunity</th><th>Win date</th><th>Amount</th><th>Status</th><th>Flags</th></tr></thead>
+              <tbody>${sg.items.map(recentWinRow).join('')}</tbody>
+            </table>
+          </div>
+        `;
+      }).join('')}
+    `;
+  }).join('');
+}
+
 async function renderTechForecast() {
   const data = await API.get('/api/tech-forecast');
   state.reps = await API.get('/api/reps');
@@ -359,6 +416,15 @@ async function renderTechForecast() {
       <button class="btn btn-primary" id="present-mode-btn">&#128225; Present mode</button>
     </div>
 
+    <div class="card">
+      <div class="card-title">Team Prep Message</div>
+      <div class="filter-row">
+        <button class="btn btn-primary" id="generate-slack-draft-btn">Generate draft</button>
+        <button class="btn" id="copy-slack-draft-btn">Copy to clipboard</button>
+      </div>
+      <textarea id="slack-draft-text" placeholder="Click 'Generate draft' to build a Slack-ready message from this week's forecast for the team's Monday call..."></textarea>
+    </div>
+
     <div class="stat-grid">
       <div class="stat-card"><div class="stat-value">${fmtMoney(totalArr)}</div><div class="stat-label">Total Tech Forecast ARR</div></div>
       <div class="stat-card"><div class="stat-value">${mustWins.length}</div><div class="stat-label">Must-Wins ($150K+) — ${fmtMoney(mustWins.reduce((s, d) => s + (d.amount || 0), 0))}</div></div>
@@ -374,22 +440,7 @@ async function renderTechForecast() {
 
     <div class="card">
       <div class="card-title">Look Back — Recent Technical Wins</div>
-      ${data.recent_wins.length ? `
-        <table>
-          <thead><tr><th>Opportunity</th><th>Rep (won) / AE (in pipeline)</th><th>Win date</th><th>Amount</th><th>Status</th></tr></thead>
-          <tbody>
-            ${data.recent_wins.map(w => `
-              <tr>
-                <td>${w.opportunity_name}</td>
-                <td>${w.source === 'closed' ? (w.rep_name || '-') : `${w.opportunity_owner || '-'} <span style="color:var(--text-muted);font-size:.68rem">(AE)</span>`}</td>
-                <td>${w.win_date || '-'}</td>
-                <td>${fmtMoney(w.amount)}</td>
-                <td><span class="badge ${w.source === 'closed' ? 'badge-green' : 'badge-blue'}">${w.source === 'closed' ? 'Closed win' : 'Tech win (open)'}</span></td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      ` : '<div class="empty-state">No recent wins on file</div>'}
+      ${data.recent_wins.length ? renderRecentWinsGrouped(data.recent_wins) : '<div class="empty-state">No recent wins on file</div>'}
     </div>
 
     <div class="card">

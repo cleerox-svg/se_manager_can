@@ -36,7 +36,13 @@ on [NaughtRFP](../rfp-responder)'s stack and Okta dark-theme UI.
   sections: Macro View (stat-grid — total tech forecast ARR, Must-Win
   count/$, Forecasted Risk count, stale-notes count, and Needs Lead SE
   count/$), Look Back (recent technical wins, blending closed `tech_win`
-  deals with open deals already at "6 - Technical Win"), Look Forward &
+  deals with open deals already at "6 - Technical Win", grouped by Okta
+  fiscal quarter — most recent first, FY starts Feb 1, see CLAUDE.md — then
+  by SE, then by amount within each SE. A group of wins with no SE
+  attributed gets a "No SE" badge on its subheader; individual still-open
+  wins with no fresh SE update since the last sync get a per-row
+  "No new notes" badge — closed wins never get that flag since the sheet's
+  closed-won export has no notes columns at all), Look Forward &
   Inspect (open technical pipeline, split into a Must-Win ($150K+) table
   shown by default plus a collapsible flyout for everything below $150K —
   each row shows Stage, Presales Stage, Forecast Status, Tech Win Date,
@@ -47,9 +53,20 @@ on [NaughtRFP](../rfp-responder)'s stack and Okta dark-theme UI.
   surfaced first, same SE display as Look Forward & Inspect). A Must-Win
   is any deal >= $150K. A deal is flagged stale ("No update this week")
   when its Pre-Sales Next Steps text is unchanged from the previous sync —
-  not by parsing dates in the freeform text. A "Present mode" toggle hides
-  the sidebar/topbar for clean screen-sharing during the Monday call. A
-  light/dark theme toggle (sidebar footer) persists via `localStorage`.
+  not by parsing dates in the freeform text. A "Team Prep Message" card sits
+  above Macro View with a "Generate draft" button that formats the weekly
+  Slack preread (`/api/tech-forecast/preread`) into a ready-to-post message
+  (executive takeaway, key metrics, top deals to come ready to discuss,
+  needs-Lead-SE call-to-action, since-last-sync deltas) in an editable
+  textarea plus a "Copy to clipboard" button — copy-paste only, no
+  direct-to-Slack send (the configured Slack token is `search.messages`-
+  scoped only) and no LLM call yet (no `LITELLM_API_KEY` configured), so the
+  draft is built with plain string templating in
+  `tech_forecast_report.build_slack_draft` rather than an AI prompt; swapping
+  in an LLM polish pass later only needs to change that one function. A
+  "Present mode" toggle hides the sidebar/topbar for clean screen-sharing
+  during the Monday call. A light/dark theme toggle (sidebar footer)
+  persists via `localStorage`.
 - **SE attribution (Team ↔ Technical Forecast)** — the sheet now carries
   real Lead SE attribution natively (`lead_se_name`), so `app.py` resolves
   each deal's effective SE with this precedence: (1) an explicit manager

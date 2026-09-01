@@ -181,16 +181,30 @@ def tech_forecast():
         d["needs_lead_se"] = not d["lead_se_name"]
         deals.append(d)
 
-    recent_wins = [dict(r) | {"source": "closed", "win_date": r["close_date"]} for r in closed_wins]
+    recent_wins = [
+        dict(r) | {"source": "closed", "win_date": r["close_date"], "notes_stale": False}
+        for r in closed_wins
+    ]
     recent_wins += [
         r | {"source": "open", "win_date": r["technical_win_date"] or r["close_date"]}
         for r in deals if r["presales_stage"] == "6 - Technical Win"
     ]
-    recent_wins.sort(key=lambda r: r.get("amount") or 0, reverse=True)
+    for r in recent_wins:
+        se_name = r["rep_name"] if r["source"] == "closed" else r["effective_se_name"]
+        r["se_name"] = se_name or "Unassigned"
+        r["no_se"] = not se_name or se_name == "Unassigned"
+        r["fiscal_quarter"] = report.fiscal_quarter(r["win_date"])
+    recent_wins.sort(
+        key=lambda r: (
+            tuple(-x for x in report.fiscal_quarter_sort_key(r["fiscal_quarter"])),
+            r["se_name"].lower(),
+            -(r.get("amount") or 0),
+        )
+    )
 
     return jsonify({
         "deals": deals,
-        "recent_wins": recent_wins[:12],
+        "recent_wins": recent_wins,
         "must_win_threshold": report.MUST_WIN_THRESHOLD,
         "last_synced_at": db.get_setting("tech_forecast_last_synced_at"),
     })
@@ -200,6 +214,12 @@ def tech_forecast():
 def tech_forecast_preread():
     limit = int(request.args.get("limit", 10))
     return jsonify(report.build_preread(db, limit=limit))
+
+
+@app.route("/api/tech-forecast/preread/draft", methods=["POST"])
+def tech_forecast_draft():
+    preread = report.build_preread(db)
+    return jsonify({"draft": report.build_slack_draft(preread)})
 
 
 @app.route("/api/tech-forecast/<path:sheet_key>/assign-se", methods=["POST"])
