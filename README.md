@@ -30,10 +30,17 @@ on [NaughtRFP](../rfp-responder)'s stack and Okta dark-theme UI.
   Okta's Presales Technical Win Process, synced from the Team Tracking
   Sheet's Technical Forecast tab (currently "Claude This q and next" —
   auto-refreshes every 24h, tab names get renamed by the user from time to
-  time, see CLAUDE.md). The sheet is grouped by Lead Sales Engineer first
-  (then Presales Stage, then Deal Forecast Status), including a literal
-  "no Lead SE assigned yet" group — see "SE attribution" below. Five
-  sections: Macro View (stat-grid — total tech forecast ARR, Must-Win
+  time, see CLAUDE.md). The sheet is grouped by Lead Sales Engineer first,
+  then Deal Forecast Status, including a literal "no Lead SE assigned yet"
+  group — see "SE attribution" below. Presales Stage is a flat per-deal
+  column (not a group level), genuinely blank for deals not yet staged. The
+  sheet's query also carries deals belonging to Greg Rainbird's sales org
+  (a different team) — those are dropped entirely during sync, even when a
+  now-inactive Lead SE of ours is still attached, since they aren't ours to
+  track here. A "Sync now" button next to Present mode copies a ready-made
+  sync request to the clipboard for pasting into a Claude Code chat (no
+  live in-app fetch —
+  see "Data model" below). Five sections: Macro View (stat-grid — total tech forecast ARR, Must-Win
   count/$, Forecasted Risk count, stale-notes count, and Needs Lead SE
   count/$), Look Back (recent technical wins, blending closed `tech_win`
   deals with open deals already at "6 - Technical Win", grouped by Okta
@@ -56,17 +63,41 @@ on [NaughtRFP](../rfp-responder)'s stack and Okta dark-theme UI.
   not by parsing dates in the freeform text. A "Team Prep Message" card sits
   above Macro View with a "Generate draft" button that formats the weekly
   Slack preread (`/api/tech-forecast/preread`) into a ready-to-post message
-  (executive takeaway, key metrics, top deals to come ready to discuss,
-  needs-Lead-SE call-to-action, since-last-sync deltas) in an editable
-  textarea plus a "Copy to clipboard" button — copy-paste only, no
-  direct-to-Slack send (the configured Slack token is `search.messages`-
-  scoped only) and no LLM call yet (no `LITELLM_API_KEY` configured), so the
-  draft is built with plain string templating in
+  in an editable textarea plus a "Copy to clipboard" button — copy-paste
+  only, no direct-to-Slack send (the configured Slack token is
+  `search.messages`-scoped only) and no LLM call yet (no `LITELLM_API_KEY`
+  configured), so the draft is built with plain string templating in
   `tech_forecast_report.build_slack_draft` rather than an AI prompt; swapping
-  in an LLM polish pass later only needs to change that one function. A
-  "Present mode" toggle hides the sidebar/topbar for clean screen-sharing
-  during the Monday call. A light/dark theme toggle (sidebar footer)
-  persists via `localStorage`.
+  in an LLM polish pass later only needs to change that one function.
+  Opportunity links in the draft (`_slack_opp_link`) render as plain
+  `Name (https://...)` text rather than Slack mrkdwn `<url|name>` syntax,
+  since this is a copy-paste-into-compose-box workflow, not a
+  `chat.postMessage` send — mrkdwn link syntax only gets parsed server-side
+  on Web API sends, so pasting it literally let Slack's client-side
+  auto-linker swallow the `|name>` into the URL and mangle it. Right
+  after Key Metrics, the draft includes a static, team-wide Command of the
+  Message recital ("The Mantra" — `tech_forecast_report._MANTRA`): the same
+  six-part Challenges->Outcomes / Required Capabilities / Metrics / How We
+  Do It / How We Do It Better / Proof Points script every time, anchored on
+  Okta's "Identity security - breach protection" Value Driver. It's
+  deliberately one static script rather than per-deal — per-deal would need
+  new Value-Driver-tagging fields that don't exist yet. The
+  "Come ready to discuss" section shows the deal's Lead SE (not the AE) and
+  is split into Current quarter / Next quarter / Unscheduled-or-later
+  sub-sections by each deal's target Technical Win date's Okta fiscal
+  quarter (`tech_forecast_report.quarter_bucket`, relative to today's
+  fiscal quarter), each deal followed by a heuristic, rule-based discussion
+  question (`build_discussion_question` — not LLM-generated; picks from
+  missing-next-steps / stale-notes / at-risk / stage-based prompts in that
+  priority order, since each is a stronger signal than the last, and phrased
+  around Command of the Message / Opportunity Analysis & Coaching Guide
+  qualification pillars — compelling event, Champion, Decision Criteria/
+  Process, Proof Points — rather than generic stage-progress language). A separate
+  "Missing notes" section lists every open (non-Technical-Win) deal across
+  the full pipeline with a blank Pre-Sales Next Steps field, not just the
+  ones in "Come ready to discuss." A "Present mode" toggle hides the
+  sidebar/topbar for clean screen-sharing during the Monday call. A
+  light/dark theme toggle (sidebar footer) persists via `localStorage`.
 - **SE attribution (Team ↔ Technical Forecast)** — the sheet now carries
   real Lead SE attribution natively (`lead_se_name`), so `app.py` resolves
   each deal's effective SE with this precedence: (1) an explicit manager
@@ -87,6 +118,10 @@ on [NaughtRFP](../rfp-responder)'s stack and Okta dark-theme UI.
   Forecast & Risk Summary" format the manager's own chain uses. No in-app
   send button — Claude drafts the Slack message from this payload on
   request and posts it via the Slack MCP tools after review.
+- **Salesforce links** — wherever an opportunity name is shown (Technical
+  Forecast tables and the Slack preread draft), it links out to that deal's
+  Salesforce Lightning page when the sheet carried an Opportunity ID;
+  otherwise it renders as plain text, no warning shown.
 - **Settings** — sync status/buttons for Google Sheets and Slack, and a
   placeholder for Gong (not built — planned as a future integration).
 
@@ -124,17 +159,29 @@ Data gets in via one of two paths — see [SETUP.md](SETUP.md):
   when Presales Stage is "6 - Technical Win". Loaded the same MCP-assisted
   way as `deals` (`py mcp_ingest.py closed_deals <json_file>`), and folded
   into `reviews.py`'s LLM context so future generated drafts lead with real
-  closed-deal/technical-win evidence.
+  closed-deal/technical-win evidence. Also carries `opportunity_id` (for
+  Salesforce links) and `sales_stage` (the sheet's "Stage" column) alongside
+  `tech_win`, distinguishing actual Closed Won status from the Tech Win flag.
+  `/api/closed-deals/summary` aggregates both into win-rate percentages —
+  team-wide and per-rep — rendered as `% Closed Won` / `% Tech Win` bars on
+  the Technical Forecast page. Note: since this sheet tab is scoped to
+  closed deals only, every row is already Closed Won, so `closed_won_pct`
+  is currently a trivial 100% everywhere; `tech_win_pct` is the metric that
+  actually varies by rep.
 - `tech_forecast_deals` — synced from the Team Tracking Sheet's Technical
   Forecast tab, one row per open deal in the technical-win pipeline
-  (`lead_se_name` straight from the sheet, Presales Stage, Deal Forecast
-  Status, Technical Win Date, overall Stage, Pre-Sales Notes, SE Manager
-  Notes, Pre-Sales Next Steps, plus a manually-set `assigned_se_rep_id`
+  (`lead_se_name` straight from the sheet, Presales Stage — a flat per-deal
+  field, genuinely blank for un-staged deals — Deal Forecast Status,
+  Technical Win Date, overall Stage, Pre-Sales Notes, SE Manager Notes,
+  Pre-Sales Next Steps, plus a manually-set `assigned_se_rep_id`
   override — see "SE attribution" above).
   Loaded the same MCP-assisted way (`py mcp_ingest.py tech_forecast
-  <json_file>`). Each sync diffs incoming Pre-Sales Next Steps against the
-  previously-stored value per row to set `notes_stale`, and also captures a
-  same-day snapshot (see `tech_forecast_snapshots` below).
+  <json_file>`) — the Technical Forecast page's "Sync now" button is a
+  clipboard reminder for this workflow, not a live fetch, since no Google
+  service account is configured (see SETUP.md Option B). Each sync diffs
+  incoming Pre-Sales Next Steps against the previously-stored value per row
+  to set `notes_stale`, and also captures a same-day snapshot (see
+  `tech_forecast_snapshots` below).
 - `tech_forecast_snapshots` — one row per sync day, holding that day's
   bucket totals and per-deal state as JSON — the baseline
   `tech_forecast_report.build_weekly_deltas` diffs the next sync against to

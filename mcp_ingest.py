@@ -12,9 +12,16 @@ Usage:
         gspread's get_all_values())
 
     py mcp_ingest.py closed_deals <json_file>
-        {"values": [["Team Member Name", ..., "Opportunity Name", ..., "Amount (converted)",
-                      ..., "Close Date", "Presales Stage"], ["Sean Keleher (USD ...)", ...], ...]}
-        (the raw "Sheet3" grid from the Team Tracking Sheet)
+        {"values": [["Team Member Name", "Team Role",
+                      "Opportunity : Account Name : Account Owner : User Sales Region",
+                      "Opportunity Name", "Manager", "Amount (converted)", "Opportunity Owner",
+                      "Close Date", "Stage", "Presales Stage", "Opportunity ID"],
+                     ["Rishika Kondaveeti (USD 2,538,735.02)", "Lead Sales Engineer (USD 2,538,735.02)",
+                      "Canada (USD 2,538,735.02)", "Teknion - ODA", "Claude Leroux", " $ 3,064.52 ",
+                      "Matt Hatherley", "5/4/2026", "10 - Closed/Won", "", "006WR00000hfyU8"], ...]}
+        (the raw "Canada SE Closed This Fiscal Year" grid from the Team
+        Tracking Sheet, nested three levels deep: Team Member Name > Team
+        Role > Region)
 
     py mcp_ingest.py tech_forecast <json_file>
         {"values": [["Account Owner AVP Region", "Presales Stage", "Deal Forecast Status",

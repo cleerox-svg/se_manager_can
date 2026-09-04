@@ -10,9 +10,37 @@ a second threshold competing with MUST_WIN_THRESHOLD).
 """
 
 import json
+import re
 from datetime import date, datetime
 
+from salesforce_links import opportunity_url
+
 MUST_WIN_THRESHOLD = 150000
+
+# Static, team-wide Command of the Message recital ("The Mantra" — Force
+# Management's 6-part "Ultimate Summation": Challenges->PBOs, Required
+# Capabilities, Metrics, How We Do It, How We Do It Better, Proof Points).
+# Anchored on Okta's "Identity security - breach protection" Value Driver
+# since it's the flagship, most-universal driver across deals. Per Claude
+# Leroux (2026-09-03), deliberately one static script, not per-deal —
+# per-deal would need new Value-Driver-tagging fields that don't exist yet.
+_MANTRA = (
+    "*The Mantra:*\n"
+    "1. Challenges -> Outcomes: Fragmented identity, over-privileged human & AI access, "
+    "and manual joiner/mover/leaver create breach exposure — customers need measurably lower "
+    "breach risk, faster detection/containment, and protected revenue & trust.\n"
+    "2. Required Capabilities: One platform across every identity type (SSO/MFA, Governance, "
+    "Privileged Access, Identity Security Posture, Device Access, Threat Protection) with a "
+    "single control plane for human AND AI/non-human identities.\n"
+    "3. Metrics: # identities under management, # AI agents discovered & governed, minutes of "
+    "actual vs. contracted downtime, % of access granted just-in-time vs. standing.\n"
+    "4. How We Do It: One unified, seamlessly-orchestrated identity fabric — not a "
+    "stitched-together stack of point tools.\n"
+    "5. How We Do It Better: Independent & vendor-neutral, integrates with everything, backed "
+    "by the Okta Secure Identity Commitment.\n"
+    "6. Proof Points: Don't take my word for it — Hitachi, Workday, and Sony Pictures "
+    "Networks all cut breach exposure and audit time after standardizing on Okta."
+)
 
 _STAGE_BUCKETS = {
     "2 - Discovery & Technical Qualification": "Early Tech",
@@ -60,6 +88,61 @@ def fiscal_quarter_sort_key(label):
     if not label:
         return (-1, -1)
     return (int(label[2:4]), int(label[-1]))
+
+
+def _offset_quarter_key(key, n):
+    """Shift a (fy, q) key by n quarters, e.g. (26, 3) + 1 -> (26, 4),
+    (26, 4) + 1 -> (27, 1). Used to find "next quarter" relative to
+    whatever quarter `key` represents."""
+    fy, q = key
+    q += n
+    while q > 4:
+        q -= 4
+        fy += 1
+    while q < 1:
+        q += 4
+        fy -= 1
+    return (fy, q)
+
+
+def current_fiscal_quarter():
+    return fiscal_quarter(date.today().isoformat())
+
+
+def quarter_bucket(target_date):
+    """Label a deal's target_tw_date as 'current', 'next', or 'later' /
+    None relative to today's fiscal quarter — powers the Slack draft's
+    Current Quarter / Next Quarter split."""
+    if not target_date:
+        return None
+    key = fiscal_quarter_sort_key(fiscal_quarter(target_date))
+    current_key = fiscal_quarter_sort_key(current_fiscal_quarter())
+    if key == current_key:
+        return "current"
+    if key == _offset_quarter_key(current_key, 1):
+        return "next"
+    return "later"
+
+
+def _slack_opp_link(d):
+    """Plain-text "name (url)" for a deal dict's opportunity name when it
+    carries a resolvable `opportunity_url`, else just the plain name. Not
+    Slack mrkdwn (`<url|name>`) on purpose: this draft is meant to be
+    copy-pasted into Slack's compose box, not sent via chat.postMessage, and
+    mrkdwn link syntax is only parsed server-side for Web API sends — pasted
+    literally, Slack's client-side auto-linker instead swallows the trailing
+    `|name>` into the URL and mangles it."""
+    url = d.get("opportunity_url")
+    return f"{d['opportunity_name']} ({url})" if url else d["opportunity_name"]
+
+
+def _stage_label(presales_stage):
+    """Strip the CRM's leading numeric stage-order prefix (e.g. "4 - ")
+    for human-facing display in the Slack draft — that number is Okta's
+    internal presales-stage ordering, not meaningful to a reader."""
+    if not presales_stage:
+        return "Untagged"
+    return re.sub(r"^\d+\s*-\s*", "", presales_stage)
 
 
 def stage_bucket(presales_stage):
@@ -124,15 +207,49 @@ def build_breakdown(deal_rows):
     return breakdown
 
 
+_STAGE_QUESTIONS = {
+    "1 - Assigned": "Newly assigned — curious what's driving the urgency here. What's the compelling event?",
+    "2 - Discovery & Technical Qualification": "How's discovery going — what outcomes are resonating, and do we have a Champion yet?",
+    "3 - Technical Scoping": "How are our capabilities lining up with their decision criteria so far?",
+    "4 - Validate Solution": "Are we landing the \"how we do it better\" story — any proof points clicking with the economic buyer?",
+    "5 - Final Due Diligence": "What's left on the decision/paper process side before we get to close?",
+    "6 - Technical Win": "Anything on decision criteria or champion support worth keeping an eye on before close?",
+}
+
+
+def build_discussion_question(row):
+    """Rule-based (not LLM-drafted) discussion prompt for a single deal —
+    picks the most actionable question from what the sheet already tells
+    us: missing next steps, a stale (unchanged-since-last-sync) update,
+    an at-risk flag, or just where the deal sits in the stage pipeline.
+    Checked in that priority order since each is a stronger signal than
+    the stage alone. Per Claude Leroux (2026-09-03), phrased around Command
+    of the Message / Opportunity Analysis & Coaching Guide qualification
+    pillars (compelling event, Champion, Decision Criteria/Process,
+    Proof Points) rather than generic stage-progress language, and in a
+    curious/collaborative tone rather than an audit-checklist one."""
+    next_steps = (row.get("pre_sales_next_steps") or "").strip()
+    if not next_steps:
+        return "Nothing logged for next steps yet — what's the story here, and how can the team help?"
+    if row.get("notes_stale"):
+        return "Hasn't moved since last sync — anything blocking, or support you need to keep it going?"
+    if row.get("forecast_status") == "Forecasted Risk":
+        return "Flagged as at-risk — want to talk through what's going on and how we de-risk it together?"
+    return _STAGE_QUESTIONS.get(row.get("presales_stage"), "What's needed to move this toward Technical Win?")
+
+
 def build_top_deals(deal_rows, limit=10):
     candidates = [
         r for r in deal_rows
         if stage_bucket(r.get("presales_stage")) not in _EXCLUDED_TOP_DEAL_BUCKETS
     ]
     candidates.sort(key=lambda r: r.get("amount") or 0, reverse=True)
-    return [
-        {
+    result = []
+    for r in candidates[:limit]:
+        target_tw_date = r.get("technical_win_date") or r.get("close_date")
+        result.append({
             "opportunity_name": r.get("opportunity_name"),
+            "opportunity_url": opportunity_url(r.get("opportunity_id")),
             "amount": r.get("amount"),
             "presales_stage": r.get("presales_stage"),
             "forecast_status": r.get("forecast_status"),
@@ -141,9 +258,33 @@ def build_top_deals(deal_rows, limit=10):
             "pre_sales_notes": r.get("pre_sales_notes") or "",
             "se_manager_notes": r.get("se_manager_notes") or "",
             "pre_sales_next_steps": r.get("pre_sales_next_steps") or "",
-            "target_tw_date": r.get("technical_win_date") or r.get("close_date"),
+            "notes_stale": bool(r.get("notes_stale")),
+            "target_tw_date": target_tw_date,
+            "target_fiscal_quarter": fiscal_quarter(target_tw_date),
+            "quarter_bucket": quarter_bucket(target_tw_date),
+            "discussion_question": build_discussion_question(r),
+        })
+    return result
+
+
+def build_missing_notes(deal_rows):
+    """Open deals (not yet a Technical Win) with no Pre-Sales Next Steps
+    logged at all — a stronger, more urgent signal than `notes_stale`
+    (which just means an existing next step hasn't changed)."""
+    candidates = [
+        r for r in deal_rows
+        if r.get("presales_stage") != "6 - Technical Win" and not (r.get("pre_sales_next_steps") or "").strip()
+    ]
+    candidates.sort(key=lambda r: r.get("amount") or 0, reverse=True)
+    return [
+        {
+            "opportunity_name": r.get("opportunity_name"),
+            "opportunity_url": opportunity_url(r.get("opportunity_id")),
+            "amount": r.get("amount"),
+            "presales_stage": r.get("presales_stage"),
+            "lead_se_name": r.get("lead_se_name") or "",
         }
-        for r in candidates[:limit]
+        for r in candidates
     ]
 
 
@@ -156,6 +297,7 @@ def build_needs_lead_se(deal_rows):
     return [
         {
             "opportunity_name": r.get("opportunity_name"),
+            "opportunity_url": opportunity_url(r.get("opportunity_id")),
             "amount": r.get("amount"),
             "presales_stage": r.get("presales_stage"),
             "forecast_status": r.get("forecast_status"),
@@ -187,7 +329,7 @@ def build_weekly_deltas(db):
         ).fetchone()
         current_rows = [
             dict(r) for r in c.execute(
-                "SELECT sheet_key, opportunity_name, amount, presales_stage, forecast_status "
+                "SELECT sheet_key, opportunity_name, opportunity_id, amount, presales_stage, forecast_status "
                 "FROM tech_forecast_deals"
             ).fetchall()
         ]
@@ -208,6 +350,7 @@ def build_weekly_deltas(db):
         deltas.append({
             "type": "new",
             "opportunity_name": r["opportunity_name"],
+            "opportunity_url": opportunity_url(r.get("opportunity_id")),
             "amount": r["amount"],
             "detail": f"New to pipeline at {r['presales_stage'] or 'Untagged'}",
         })
@@ -217,6 +360,7 @@ def build_weekly_deltas(db):
         deltas.append({
             "type": "dropped",
             "opportunity_name": r["opportunity_name"],
+            "opportunity_url": opportunity_url(r.get("opportunity_id")),
             "amount": r["amount"],
             "detail": "Dropped off the technical pipeline since last week",
         })
@@ -230,6 +374,7 @@ def build_weekly_deltas(db):
             deltas.append({
                 "type": direction,
                 "opportunity_name": cur["opportunity_name"],
+                "opportunity_url": opportunity_url(cur.get("opportunity_id")),
                 "amount": cur["amount"],
                 "detail": f"{prev['presales_stage'] or 'Untagged'} -> {cur['presales_stage'] or 'Untagged'}",
             })
@@ -237,6 +382,7 @@ def build_weekly_deltas(db):
             deltas.append({
                 "type": "status_change",
                 "opportunity_name": cur["opportunity_name"],
+                "opportunity_url": opportunity_url(cur.get("opportunity_id")),
                 "amount": cur["amount"],
                 "detail": f"{prev['forecast_status'] or 'Untagged'} -> {cur['forecast_status'] or 'Untagged'}",
             })
@@ -270,36 +416,66 @@ def build_slack_draft(preread):
         "",
     ]
 
-    top_deals = preread["top_deals"][:5]
+    top_deals = preread["top_deals"]
     lines.append("*Come ready to discuss:*")
     if top_deals:
+        current_key = fiscal_quarter_sort_key(current_fiscal_quarter())
+        next_key = _offset_quarter_key(current_key, 1)
+        buckets = {"current": [], "next": [], "later": []}
         for d in top_deals:
-            owner = d["opportunity_owner"] or "no AE on file"
-            lines.append(
-                f"- {d['opportunity_name']} — ${d['amount']:,.0f} "
-                f"({d['presales_stage'] or 'Untagged'}, AE: {owner})"
-            )
+            buckets.setdefault(d.get("quarter_bucket") or "later", buckets["later"]).append(d)
+
+        def _quarter_label(key):
+            return f"FY{key[0]:02d}-Q{key[1]}"
+
+        section_specs = [
+            ("current", f"*Current quarter ({_quarter_label(current_key)}):*"),
+            ("next", f"*Next quarter ({_quarter_label(next_key)}):*"),
+            ("later", "*Unscheduled / later:*"),
+        ]
+        for bucket_key, heading in section_specs:
+            bucket_deals = buckets.get(bucket_key) or []
+            if not bucket_deals:
+                continue
+            lines.append(heading)
+            for d in bucket_deals[:5]:
+                se = d["lead_se_name"] or "no Lead SE on file"
+                lines.append(
+                    f"- {_slack_opp_link(d)} — ${d['amount']:,.0f} "
+                    f"({_stage_label(d['presales_stage'])}, SE: {se})"
+                )
+                lines.append(f"  ↳ {d['discussion_question']}")
     else:
         lines.append("- Nothing outstanding — pipeline is caught up.")
     lines.append("")
+
+    missing_notes = preread["missing_notes"]
+    if missing_notes:
+        lines.append("*Missing notes — no next steps logged:*")
+        for d in missing_notes:
+            se = d["lead_se_name"] or "no Lead SE on file"
+            lines.append(f"- {_slack_opp_link(d)} — ${d['amount']:,.0f} ({_stage_label(d['presales_stage'])}, SE: {se})")
+        lines.append("")
 
     needs_lead_se = preread["needs_lead_se"]
     if needs_lead_se:
         lines.append("*Needs a Lead SE — please claim one if it's yours:*")
         for d in needs_lead_se:
-            lines.append(f"- {d['opportunity_name']} — ${d['amount']:,.0f} (AE: {d['opportunity_owner'] or '-'})")
+            lines.append(f"- {_slack_opp_link(d)} — ${d['amount']:,.0f} (AE: {d['opportunity_owner'] or '-'})")
         lines.append("")
 
     lines.append("*Since last sync:*")
     deltas = preread["weekly_deltas"]
     if deltas:
         for d in deltas[:8]:
-            lines.append(f"- {d['opportunity_name']}: {d['detail']}")
+            lines.append(f"- {_slack_opp_link(d)}: {d['detail']}")
     else:
         lines.append("- No changes since last sync yet.")
     lines.append("")
 
     lines.append("See you Monday — come prepared with an update on your deals above. 🙌")
+    lines.append("")
+    lines.append(_MANTRA)
     return "\n".join(lines)
 
 
@@ -315,6 +491,7 @@ def build_preread(db, limit=10):
         "top_deals": build_top_deals(deal_rows, limit=limit),
         "weekly_deltas": build_weekly_deltas(db),
         "needs_lead_se": build_needs_lead_se(deal_rows),
+        "missing_notes": build_missing_notes(deal_rows),
         "must_win_threshold": MUST_WIN_THRESHOLD,
         "generated_at": datetime.now().isoformat(),
     }

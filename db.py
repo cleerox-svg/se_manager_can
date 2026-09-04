@@ -50,6 +50,14 @@ class Database:
             c.execute("ALTER TABLE tech_forecast_deals ADD COLUMN lead_se_name TEXT")
         if "pre_sales_next_steps" not in cols:
             c.execute("ALTER TABLE tech_forecast_deals ADD COLUMN pre_sales_next_steps TEXT")
+        if "opportunity_id" not in cols:
+            c.execute("ALTER TABLE tech_forecast_deals ADD COLUMN opportunity_id TEXT")
+
+        cols = {row["name"] for row in c.execute("PRAGMA table_info(closed_deals)")}
+        if "opportunity_id" not in cols:
+            c.execute("ALTER TABLE closed_deals ADD COLUMN opportunity_id TEXT")
+        if "sales_stage" not in cols:
+            c.execute("ALTER TABLE closed_deals ADD COLUMN sales_stage TEXT")
 
         c.execute("DROP TABLE IF EXISTS clari_ae_snapshots")
 
@@ -114,8 +122,10 @@ class Database:
                     rep_name         TEXT,
                     se_rep_id        INTEGER REFERENCES se_reps(id) ON DELETE SET NULL,
                     opportunity_name TEXT,
+                    opportunity_id   TEXT,
                     amount           REAL,
                     close_date       TEXT,
+                    sales_stage      TEXT,
                     tech_win         INTEGER DEFAULT 0,
                     last_synced_at   TEXT DEFAULT (datetime('now'))
                 );
@@ -125,6 +135,7 @@ class Database:
                     sheet_key                TEXT UNIQUE,
                     lead_se_name             TEXT,
                     opportunity_name         TEXT,
+                    opportunity_id           TEXT,
                     amount                   REAL,
                     presales_stage           TEXT,
                     forecast_status          TEXT,

@@ -140,6 +140,19 @@ a:hover { color: var(--text-primary); }
 .goal-bar-label .pct { font-weight: 700; color: var(--text-primary); }
 .goal-bar-label .pct.met { color: var(--green); }
 .goal-bar-target-input { width: 90px; padding: 3px 6px; font-size: .72rem; }
+.goal-bar-fill.accent { background: var(--purple); }
+
+/* ── Win rate (% Closed Won / % Tech Win) ───────────────────────────────── */
+.winrate-team { display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 16px; }
+.winrate-team-metric { flex: 1; min-width: 180px; }
+.winrate-team-metric-label { font-size: .72rem; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; }
+.winrate-reps { display: flex; flex-direction: column; gap: 4px; }
+.winrate-rep-row { display: grid; grid-template-columns: 140px 1fr; align-items: center; gap: 14px; padding: 9px 0; border-top: 1px solid var(--border); }
+.winrate-rep-row:first-child { border-top: none; }
+.winrate-rep-name { font-size: .82rem; font-weight: 600; color: var(--text-primary); }
+.winrate-rep-bars { display: flex; gap: 20px; flex-wrap: wrap; }
+.winrate-rep-bar { flex: 1; min-width: 150px; }
+.winrate-rep-bar-label { font-size: .68rem; color: var(--text-muted); display: block; margin-bottom: 3px; }
 
 /* ── Table ───────────────────────────────────────────────────────────────── */
 table { width: 100%; border-collapse: collapse; font-size: .84rem; }

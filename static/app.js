@@ -74,6 +74,60 @@ function arrGoalBar(total, target) {
   `;
 }
 
+/* ── Win rate (% Closed Won / % Tech Win) ───────────────────────────────── */
+function pctBar(pct, opts = {}) {
+  const { modifier = '', countLabel = '' } = opts;
+  const p = Math.round((pct || 0) * 100);
+  return `
+    <div class="goal-bar-wrap">
+      <div class="goal-bar">
+        <div class="goal-bar-fill ${modifier}" style="width:${p}%"></div>
+      </div>
+      <div class="goal-bar-label">
+        <span>${countLabel}</span>
+        <span class="pct">${p}%</span>
+      </div>
+    </div>
+  `;
+}
+
+function winRateRepRow(r) {
+  return `
+    <div class="winrate-rep-row">
+      <div class="winrate-rep-name">${r.name}</div>
+      <div class="winrate-rep-bars">
+        <div class="winrate-rep-bar">
+          <span class="winrate-rep-bar-label">Closed Won</span>
+          ${pctBar(r.closed_won_pct, { countLabel: `${r.closed_won}/${r.total}` })}
+        </div>
+        <div class="winrate-rep-bar">
+          <span class="winrate-rep-bar-label">Tech Win</span>
+          ${pctBar(r.tech_win_pct, { modifier: 'accent', countLabel: `${r.tech_win}/${r.total}` })}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderWinRateSummary(summary) {
+  const team = summary.team;
+  return `
+    <div class="winrate-team">
+      <div class="winrate-team-metric">
+        <div class="winrate-team-metric-label">Closed Won</div>
+        ${pctBar(team.closed_won_pct, { countLabel: `${team.closed_won}/${team.total}` })}
+      </div>
+      <div class="winrate-team-metric">
+        <div class="winrate-team-metric-label">Tech Win</div>
+        ${pctBar(team.tech_win_pct, { modifier: 'accent', countLabel: `${team.tech_win}/${team.total}` })}
+      </div>
+    </div>
+    <div class="winrate-reps">
+      ${summary.reps.map(winRateRepRow).join('')}
+    </div>
+  `;
+}
+
 function reviewStatusBadge(status) {
   if (status === 'final') return '<span class="badge badge-green">Final</span>';
   if (status === 'draft') return '<span class="badge badge-blue">Draft</span>';
@@ -234,6 +288,10 @@ async function teamSaveReview(repId, period, status) {
 }
 
 /* ── Technical Forecast ──────────────────────────────────────────────────── */
+function oppLink(name, url) {
+  return url ? `<a href="${url}" target="_blank" rel="noopener">${name}</a>` : name;
+}
+
 function truncate(text, n) {
   if (!text) return '';
   const flat = text.replace(/[\r\n]+/g, ' ').trim();
@@ -279,7 +337,7 @@ function notesCell(text, maxWidth) {
 function inspectRow(d, threshold) {
   return `
     <tr>
-      <td>${d.opportunity_name}<div style="color:var(--text-muted);font-size:.72rem">AE: ${d.opportunity_owner || '-'}</div></td>
+      <td>${oppLink(d.opportunity_name, d.opportunity_url)}<div style="color:var(--text-muted);font-size:.72rem">AE: ${d.opportunity_owner || '-'}</div></td>
       <td>${d.sales_stage || '-'}</td>
       <td>${presalesStageBadge(d.presales_stage)}</td>
       <td>${forecastStatusBadge(d.forecast_status)}</td>
@@ -316,7 +374,7 @@ function needsLeadSeTable(rows) {
         <tbody>
           ${rows.map(r => `
             <tr>
-              <td>${r.opportunity_name}</td>
+              <td>${oppLink(r.opportunity_name, r.opportunity_url)}</td>
               <td>${r.opportunity_owner || '-'}</td>
               <td>${presalesStageBadge(r.presales_stage)}</td>
               <td>${forecastStatusBadge(r.forecast_status)}</td>
@@ -353,7 +411,7 @@ function recentWinFlags(w) {
 function recentWinRow(w) {
   return `
     <tr>
-      <td>${w.opportunity_name}${w.source === 'open' ? `<div style="color:var(--text-muted);font-size:.72rem">AE: ${w.opportunity_owner || '-'}</div>` : ''}</td>
+      <td>${oppLink(w.opportunity_name, w.opportunity_url)}${w.source === 'open' ? `<div style="color:var(--text-muted);font-size:.72rem">AE: ${w.opportunity_owner || '-'}</div>` : ''}</td>
       <td>${w.win_date || '-'}</td>
       <td>${fmtMoney(w.amount)}</td>
       <td><span class="badge ${w.source === 'closed' ? 'badge-green' : 'badge-blue'}">${w.source === 'closed' ? 'Closed win' : 'Tech win (open)'}</span></td>
@@ -389,6 +447,7 @@ function renderRecentWinsGrouped(wins) {
 async function renderTechForecast() {
   const data = await API.get('/api/tech-forecast');
   state.reps = await API.get('/api/reps');
+  const winRateSummary = await API.get('/api/closed-deals/summary');
   const threshold = data.must_win_threshold;
   const deals = data.deals;
 
@@ -413,7 +472,10 @@ async function renderTechForecast() {
           Last synced: ${data.last_synced_at ? new Date(data.last_synced_at).toLocaleString() : 'never'} — Presales Technical Win Process
         </div>
       </div>
-      <button class="btn btn-primary" id="present-mode-btn">&#128225; Present mode</button>
+      <div class="filter-row">
+        <button class="btn" id="sync-now-btn">&#128260; Sync now</button>
+        <button class="btn btn-primary" id="present-mode-btn">&#128225; Present mode</button>
+      </div>
     </div>
 
     <div class="card">
@@ -436,6 +498,11 @@ async function renderTechForecast() {
     <div class="card">
       <div class="card-title">Needs Lead SE (${needsLeadSeDeals.length})</div>
       ${needsLeadSeDeals.length ? needsLeadSeTable(needsLeadSeDeals) : '<div class="empty-state">Every deal in the sheet has a Lead SE set</div>'}
+    </div>
+
+    <div class="card">
+      <div class="card-title">Win Rate — Closed Deals</div>
+      ${renderWinRateSummary(winRateSummary)}
     </div>
 
     <div class="card">
@@ -462,7 +529,7 @@ async function renderTechForecast() {
           <tbody>
             ${wrapUpDeals.map(d => `
               <tr>
-                <td>${d.opportunity_name}<div style="color:var(--text-muted);font-size:.72rem">AE: ${d.opportunity_owner || '-'}</div></td>
+                <td>${oppLink(d.opportunity_name, d.opportunity_url)}<div style="color:var(--text-muted);font-size:.72rem">AE: ${d.opportunity_owner || '-'}</div></td>
                 <td>${forecastStatusBadge(d.forecast_status)}</td>
                 <td>${fmtMoney(d.amount)}</td>
                 <td>${seAssignSelect(d)}</td>
@@ -476,6 +543,22 @@ async function renderTechForecast() {
   `;
 
   document.getElementById('present-mode-btn').onclick = () => document.body.classList.add('present-mode');
+
+  document.getElementById('sync-now-btn').onclick = async () => {
+    await navigator.clipboard.writeText('Sync the tech forecast sheet.');
+    toast('Copied — paste into a Claude Code chat to pull the latest sheet data', 'success');
+  };
+
+  document.getElementById('generate-slack-draft-btn').onclick = async () => {
+    toast('Generating draft...');
+    const res = await API.post('/api/tech-forecast/preread/draft', {});
+    document.getElementById('slack-draft-text').value = res.draft;
+    toast('Draft generated', 'success');
+  };
+  document.getElementById('copy-slack-draft-btn').onclick = async () => {
+    await navigator.clipboard.writeText(document.getElementById('slack-draft-text').value);
+    toast('Copied', 'success');
+  };
 }
 
 /* ── Person detail ──────────────────────────────────────────────────────── */
@@ -505,7 +588,7 @@ async function renderPerson(repId) {
         <table>
           <thead><tr><th>Opportunity</th><th>Stage</th><th>Close date</th><th>Amount</th><th>Mgr notes</th></tr></thead>
           <tbody>
-            ${deals.map(d => `<tr><td>${d.opportunity_name}</td><td>${stageBadge(d.stage)}</td><td>${d.close_date || '-'}</td><td>${fmtMoney(d.amount)}</td><td>${d.se_manager_notes || '-'}</td></tr>`).join('') || '<tr><td colspan="5"><div class="empty-state">No deals on file</div></td></tr>'}
+            ${deals.map(d => `<tr><td>${oppLink(d.opportunity_name, d.opportunity_url)}</td><td>${stageBadge(d.stage)}</td><td>${d.close_date || '-'}</td><td>${fmtMoney(d.amount)}</td><td>${d.se_manager_notes || '-'}</td></tr>`).join('') || '<tr><td colspan="5"><div class="empty-state">No deals on file</div></td></tr>'}
           </tbody>
         </table>
       </div>

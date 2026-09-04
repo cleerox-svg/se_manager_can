@@ -9,6 +9,7 @@ import sheets_sync
 import slack_sync
 import tech_forecast_report as report
 from db import Database
+from salesforce_links import opportunity_url
 
 load_dotenv()
 
@@ -179,6 +180,7 @@ def tech_forecast():
         d["effective_se_rep_id"] = effective_se_id
         d["effective_se_name"] = reps_by_id.get(effective_se_id, "Unassigned") if effective_se_id else "Unassigned"
         d["needs_lead_se"] = not d["lead_se_name"]
+        d["opportunity_url"] = opportunity_url(d["opportunity_id"])
         deals.append(d)
 
     recent_wins = [
@@ -194,6 +196,7 @@ def tech_forecast():
         r["se_name"] = se_name or "Unassigned"
         r["no_se"] = not se_name or se_name == "Unassigned"
         r["fiscal_quarter"] = report.fiscal_quarter(r["win_date"])
+        r["opportunity_url"] = opportunity_url(r.get("opportunity_id"))
     recent_wins.sort(
         key=lambda r: (
             tuple(-x for x in report.fiscal_quarter_sort_key(r["fiscal_quarter"])),
@@ -232,6 +235,61 @@ def assign_tech_forecast_se(sheet_key):
             (se_rep_id, sheet_key),
         )
     return jsonify({"ok": True})
+
+
+# ── Closed Deals ─────────────────────────────────────────────────────────
+@app.route("/api/closed-deals/summary")
+def closed_deals_summary():
+    def pct(numerator, total):
+        return round(numerator / total, 3) if total else 0.0
+
+    with db.conn() as c:
+        team_row = c.execute("""
+            SELECT
+                COUNT(*) AS total,
+                SUM(CASE WHEN sales_stage = '10 - Closed/Won' THEN 1 ELSE 0 END) AS closed_won,
+                SUM(CASE WHEN tech_win = 1 THEN 1 ELSE 0 END) AS tech_win
+            FROM closed_deals
+        """).fetchone()
+
+        rep_rows = c.execute("""
+            SELECT r.id AS rep_id, r.name AS rep_name,
+                COUNT(cd.id) AS total,
+                SUM(CASE WHEN cd.sales_stage = '10 - Closed/Won' THEN 1 ELSE 0 END) AS closed_won,
+                SUM(CASE WHEN cd.tech_win = 1 THEN 1 ELSE 0 END) AS tech_win
+            FROM se_reps r
+            JOIN closed_deals cd ON cd.se_rep_id = r.id
+            GROUP BY r.id, r.name
+            ORDER BY r.name
+        """).fetchall()
+
+    team_total = team_row["total"] or 0
+    team_closed_won = team_row["closed_won"] or 0
+    team_tech_win = team_row["tech_win"] or 0
+    team = {
+        "total": team_total,
+        "closed_won": team_closed_won,
+        "tech_win": team_tech_win,
+        "closed_won_pct": pct(team_closed_won, team_total),
+        "tech_win_pct": pct(team_tech_win, team_total),
+    }
+
+    reps = []
+    for r in rep_rows:
+        total = r["total"] or 0
+        closed_won = r["closed_won"] or 0
+        tech_win = r["tech_win"] or 0
+        reps.append({
+            "rep_id": r["rep_id"],
+            "rep_name": r["rep_name"],
+            "total": total,
+            "closed_won": closed_won,
+            "tech_win": tech_win,
+            "closed_won_pct": pct(closed_won, total),
+            "tech_win_pct": pct(tech_win, total),
+        })
+
+    return jsonify({"team": team, "reps": reps})
 
 
 # ── Sync ─────────────────────────────────────────────────────────────────
