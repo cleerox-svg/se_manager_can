@@ -69,9 +69,13 @@ cell carries a running dollar total suffix instead of a row count, e.g.
 `"Sean Keleher (USD 1,099,753.82)"`, so it has its own strip regex
 (`_GROUP_SUFFIX_RE`) rather than reusing `_strip_group_count`. Team Role and
 Region are grouping-only fields used to walk the structure — neither is
-persisted to `closed_deals`. Every row in this tab has Stage = "10 -
-Closed/Won" since the tab itself is scoped to closed deals only; Presales
-Stage is the separate flat per-row column that drives `tech_win`.
+persisted to `closed_deals`. Stage carries both "10 - Closed/Won" and a
+Closed/Lost value — the tab covers all closed deals, not won deals only.
+Presales Stage is the separate flat per-row column that drives `tech_win`.
+Because of this, `/api/closed-deals/summary`'s team-level query filters
+`WHERE se_rep_id IS NOT NULL` and reports `closed_won`/`closed_won_pct`
+alongside `tech_win_pct` — Tech Win Rate's denominator is "closed deals with
+an assigned SE," not "closed-won deals."
 
 "Claude This q and next" is nested one level deeper than SFDC/Sheet3:
 group-header rows run Lead Sales Engineer > Deal Forecast Status, each
@@ -198,7 +202,7 @@ chunks with a visible task list.
 | `app.py` | Flask routes |
 | `db.py` | SQLite schema + thread-local connections |
 | `sheets_sync.py` | Google Sheets "Lead SE Pipeline SFDC" tab → `deals` table |
-| `closed_deals_sync.py` | Google Sheets "Canada SE Closed This Fiscal Year" tab (closed-won/technical-win export) → `closed_deals` table |
+| `closed_deals_sync.py` | Google Sheets "Canada SE Closed This Fiscal Year" tab (closed-deal export, Won and Lost, technical-win flag) → `closed_deals` table |
 | `tech_forecast_sync.py` | Google Sheets "Claude This q and next" tab (Technical Forecast pipeline, grouped Lead SE > Deal Forecast Status, Presales Stage flat per-deal) → `tech_forecast_deals` table; also captures the daily snapshot used for week-over-week deltas |
 | `tech_forecast_report.py` | Pure aggregation/report logic for the Technical Forecast page + Slack preread (bucket totals, key metrics, top deals w/ fiscal-quarter bucket + heuristic discussion question, weekly deltas, needs-Lead-SE list, missing-notes list) — no Flask dependency, reused by `app.py` and `tech_forecast_sync.py` |
 | `slack_sync.py` | Slack `search.messages` → `slack_notes` table |

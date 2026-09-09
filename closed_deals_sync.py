@@ -1,5 +1,6 @@
 """Pulls the Team Tracking Sheet's "Canada SE Closed This Fiscal Year" tab
-(closed-won export) into the local `closed_deals` table.
+(closed deals export, both Closed/Won and Closed/Lost) into the local
+`closed_deals` table.
 
 Grouped/hierarchical layout nested three levels deep: Team Member Name >
 Team Role > Region (`_GROUP_LEVELS`), each group-header cell carrying a
@@ -15,10 +16,10 @@ only ever appears on its own trailing Subtotal row rather than its leading
 row. Team Role and Region are grouping-only fields used to walk this
 structure correctly — neither is persisted to `closed_deals`.
 
-Every row in this tab has Stage = "10 - Closed/Won" since the tab itself is
-scoped to closed deals only; Presales Stage is a separate flat per-row
-column (blank, or "6 - Technical Win") that drives the `tech_win` flag — it
-is not a group level.
+Stage carries both "10 - Closed/Won" and a Closed/Lost value — the tab is
+scoped to closed deals, not won deals only. Presales Stage is a separate
+flat per-row column (blank, or "6 - Technical Win") that drives the
+`tech_win` flag — it is not a group level.
 
 We drop subtotal/total rows and any row with a blank Opportunity Name to get
 one clean row per closed opportunity.

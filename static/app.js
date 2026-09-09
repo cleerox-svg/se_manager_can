@@ -94,7 +94,7 @@ function pctBar(pct, opts = {}) {
 function winRateRepRow(r) {
   return `
     <div class="winrate-rep-row">
-      <div class="winrate-rep-name">${r.name}</div>
+      <div class="winrate-rep-name">${r.rep_name}</div>
       <div class="winrate-rep-bars">
         <div class="winrate-rep-bar">
           <span class="winrate-rep-bar-label">Closed Won</span>

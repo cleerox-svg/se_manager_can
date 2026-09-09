@@ -154,20 +154,20 @@ Data gets in via one of two paths — see [SETUP.md](SETUP.md):
   `seed_arr_targets.py`, editable in place from the Team page).
 - `deals` — synced from the Team Tracking Sheet's open-pipeline tab, one row
   per open opportunity.
-- `closed_deals` — synced from the Team Tracking Sheet's closed-won export
-  tab, one row per closed opportunity, flagged `tech_win`
+- `closed_deals` — synced from the Team Tracking Sheet's closed-deal export
+  tab ("Canada SE Closed This Fiscal Year"), one row per closed opportunity —
+  both Closed/Won and Closed/Lost, not won deals only — flagged `tech_win`
   when Presales Stage is "6 - Technical Win". Loaded the same MCP-assisted
   way as `deals` (`py mcp_ingest.py closed_deals <json_file>`), and folded
   into `reviews.py`'s LLM context so future generated drafts lead with real
   closed-deal/technical-win evidence. Also carries `opportunity_id` (for
-  Salesforce links) and `sales_stage` (the sheet's "Stage" column) alongside
-  `tech_win`, distinguishing actual Closed Won status from the Tech Win flag.
-  `/api/closed-deals/summary` aggregates both into win-rate percentages —
-  team-wide and per-rep — rendered as `% Closed Won` / `% Tech Win` bars on
-  the Technical Forecast page. Note: since this sheet tab is scoped to
-  closed deals only, every row is already Closed Won, so `closed_won_pct`
-  is currently a trivial 100% everywhere; `tech_win_pct` is the metric that
-  actually varies by rep.
+  Salesforce links) and `sales_stage` (the sheet's "Stage" column, either
+  "10 - Closed/Won" or "11- Closed/Lost") alongside `tech_win`, distinguishing
+  actual Closed Won status from the Tech Win flag. `/api/closed-deals/summary`
+  aggregates both into win-rate percentages — team-wide and per-rep —
+  rendered as `% Closed Won` / `% Tech Win` bars on the Technical Forecast
+  page; both percentages vary meaningfully by rep since the tab mixes Won and
+  Lost outcomes.
 - `tech_forecast_deals` — synced from the Team Tracking Sheet's Technical
   Forecast tab, one row per open deal in the technical-win pipeline
   (`lead_se_name` straight from the sheet, Presales Stage — a flat per-deal

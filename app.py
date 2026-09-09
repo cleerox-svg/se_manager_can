@@ -250,6 +250,7 @@ def closed_deals_summary():
                 SUM(CASE WHEN sales_stage = '10 - Closed/Won' THEN 1 ELSE 0 END) AS closed_won,
                 SUM(CASE WHEN tech_win = 1 THEN 1 ELSE 0 END) AS tech_win
             FROM closed_deals
+            WHERE se_rep_id IS NOT NULL
         """).fetchone()
 
         rep_rows = c.execute("""
