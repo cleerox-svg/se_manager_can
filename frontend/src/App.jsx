@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import Sidebar from './components/Sidebar.jsx';
 import Topbar from './components/Topbar.jsx';
 import Toasts from './components/Toasts.jsx';
+import Dashboard from './pages/Dashboard.jsx';
+import Team from './pages/Team.jsx';
 import { initTheme, setTheme } from './theme.js';
 import { subscribeToasts } from './toast.js';
 
@@ -14,7 +16,14 @@ const PAGE_TITLES = {
 };
 
 function PageContent({ page }) {
-  return <h1>{PAGE_TITLES[page] || page}</h1>;
+  switch (page) {
+    case 'dashboard':
+      return <Dashboard />;
+    case 'team':
+      return <Team />;
+    default:
+      return <h1>{PAGE_TITLES[page] || page}</h1>;
+  }
 }
 
 export default function App() {
