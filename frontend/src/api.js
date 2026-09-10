@@ -58,3 +58,7 @@ export function syncSlack() {
 export function getTechForecast() {
   return API.get('/api/tech-forecast');
 }
+
+export function generatePrereadDraft() {
+  return API.post('/api/tech-forecast/preread/draft', {});
+}

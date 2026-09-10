@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { getTechForecast } from '../../api.js';
 import { toast } from '../../toast.js';
 import MacroView from './MacroView.jsx';
+import TeamPrepMessage from './TeamPrepMessage.jsx';
 
 export default function TechForecast() {
   const [data, setData] = useState(null);
@@ -51,10 +52,7 @@ export default function TechForecast() {
         </div>
       </div>
 
-      <div className="card">
-        <div className="card-title">Team Prep Message</div>
-        <div className="empty-state">Coming soon</div>
-      </div>
+      <TeamPrepMessage />
 
       <MacroView deals={data.deals} />
 
