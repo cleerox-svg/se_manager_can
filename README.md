@@ -40,25 +40,26 @@ on [NaughtRFP](../rfp-responder)'s stack and Okta dark-theme UI.
   track here. A "Sync now" button next to Present mode copies a ready-made
   sync request to the clipboard for pasting into a Claude Code chat (no
   live in-app fetch —
-  see "Data model" below). Five sections: Macro View (stat-grid — total tech forecast ARR, Must-Win
-  count/$, Forecasted Risk count, stale-notes count, and Needs Lead SE
+  see "Data model" below). Five sections: Macro View (stat-grid — total tech forecast ARR,
+  Forecasted Risk count, stale-notes count, and Needs Lead SE
   count/$), Look Back (recent technical wins, blending closed `tech_win`
   deals with open deals already at "6 - Technical Win", grouped by Okta
   fiscal quarter — most recent first, FY starts Feb 1, see CLAUDE.md — then
-  by SE, then by amount within each SE. A group of wins with no SE
+  by SE, then by amount within each SE. Each quarter and each SE sub-group is
+  a collapsible `<details class="flyout">` (open by default) whose summary
+  line always shows the win count and dollar total, so the totals stay
+  visible even when collapsed. A group of wins with no SE
   attributed gets a "No SE" badge on its subheader; individual still-open
   wins with no fresh SE update since the last sync get a per-row
   "No new notes" badge — closed wins never get that flag since the sheet's
   closed-won export has no notes columns at all), Look Forward &
-  Inspect (open technical pipeline, split into a Must-Win ($150K+) table
-  shown by default plus a collapsible flyout for everything below $150K —
-  each row shows Stage, Presales Stage, Forecast Status, Tech Win Date,
-  Amount, an SE dropdown (with a "No Lead SE (sheet)" badge when the sheet
-  itself has no Lead SE set), Flags, and all three of Pre-Sales Notes, SE
-  Manager Notes, and Pre-Sales Next Steps as distinct columns), and
-  Wrap-Up & Risk (Forecasted Risk and/or stale-notes deals, Must-Wins
-  surfaced first, same SE display as Look Forward & Inspect). A Must-Win
-  is any deal >= $150K. A deal is flagged stale ("No update this week")
+  Inspect (open technical pipeline table — each row shows Stage, Presales
+  Stage, Forecast Status, Tech Win Date, Amount, an SE dropdown (with a
+  "No Lead SE (sheet)" badge when the sheet itself has no Lead SE set),
+  Flags, and all three of Pre-Sales Notes, SE Manager Notes, and Pre-Sales
+  Next Steps as distinct columns), and Wrap-Up & Risk (Forecasted Risk
+  and/or stale-notes deals, same SE display as Look Forward & Inspect).
+  A deal is flagged stale ("No update this week")
   when its Pre-Sales Next Steps text is unchanged from the previous sync —
   not by parsing dates in the freeform text. A "Team Prep Message" card sits
   above Macro View with a "Generate draft" button that formats the weekly

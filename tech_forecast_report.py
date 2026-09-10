@@ -5,8 +5,7 @@ tech_forecast_sync.py's snapshot capture.
 Deliberate deviation from Satish Ponnaluri's "Tech Win Forecast & Risk
 Summary" template, called out here for visibility rather than left implicit:
 "Total Active Pipeline" applies no dollar floor (reuses the full, already-
-curated `tech_forecast_deals` set rather than a raw $100K CRM floor, to avoid
-a second threshold competing with MUST_WIN_THRESHOLD).
+curated `tech_forecast_deals` set rather than a raw $100K CRM floor).
 """
 
 import json
@@ -14,8 +13,6 @@ import re
 from datetime import date, datetime
 
 from salesforce_links import opportunity_url
-
-MUST_WIN_THRESHOLD = 150000
 
 # Static, team-wide Command of the Message recital ("The Mantra" — Force
 # Management's 6-part "Ultimate Summation": Challenges->PBOs, Required
@@ -492,6 +489,5 @@ def build_preread(db, limit=10):
         "weekly_deltas": build_weekly_deltas(db),
         "needs_lead_se": build_needs_lead_se(deal_rows),
         "missing_notes": build_missing_notes(deal_rows),
-        "must_win_threshold": MUST_WIN_THRESHOLD,
         "generated_at": datetime.now().isoformat(),
     }

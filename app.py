@@ -208,7 +208,6 @@ def tech_forecast():
     return jsonify({
         "deals": deals,
         "recent_wins": recent_wins,
-        "must_win_threshold": report.MUST_WIN_THRESHOLD,
         "last_synced_at": db.get_setting("tech_forecast_last_synced_at"),
     })
 

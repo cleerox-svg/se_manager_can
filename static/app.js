@@ -308,9 +308,8 @@ function forecastStatusBadge(status) {
   return `<span class="badge ${map[status] || 'badge-muted'}">${status || '-'}</span>`;
 }
 
-function dealFlags(d, threshold) {
+function dealFlags(d) {
   return `
-    ${d.amount >= threshold ? '<span class="badge badge-purple">Must-Win</span>' : ''}
     ${d.notes_stale ? '<span class="badge badge-amber">No update this week</span>' : ''}
     ${!d.pre_sales_next_steps ? '<span class="badge badge-amber">No TW Strategy</span>' : ''}
     ${d.needs_lead_se ? '<span class="badge badge-amber">No Lead SE (sheet)</span>' : ''}
@@ -334,7 +333,7 @@ function notesCell(text, maxWidth) {
   return `<td title="${safe}" style="max-width:${maxWidth}px;font-size:.78rem;color:var(--text-secondary)">${truncate(text, 90) || '-'}</td>`;
 }
 
-function inspectRow(d, threshold) {
+function inspectRow(d) {
   return `
     <tr>
       <td>${oppLink(d.opportunity_name, d.opportunity_url)}<div style="color:var(--text-muted);font-size:.72rem">AE: ${d.opportunity_owner || '-'}</div></td>
@@ -344,7 +343,7 @@ function inspectRow(d, threshold) {
       <td>${d.technical_win_date || '-'}</td>
       <td>${fmtMoney(d.amount)}</td>
       <td>${seAssignSelect(d)}</td>
-      <td><div class="pill-row">${dealFlags(d, threshold)}</div></td>
+      <td><div class="pill-row">${dealFlags(d)}</div></td>
       ${notesCell(d.pre_sales_notes, 220)}
       ${notesCell(d.pre_sales_next_steps, 220)}
       ${notesCell(d.se_manager_notes, 220)}
@@ -352,7 +351,7 @@ function inspectRow(d, threshold) {
   `;
 }
 
-function inspectTable(deals, threshold) {
+function inspectTable(deals) {
   return `
     <div class="table-scroll">
       <table>
@@ -360,7 +359,7 @@ function inspectTable(deals, threshold) {
           <th>Opportunity</th><th>Stage</th><th>Presales Stage</th><th>Forecast Status</th>
           <th>Tech win date</th><th>Amount</th><th>SE</th><th>Flags</th><th>Pre-sales notes</th><th>Pre-sales next steps</th><th>SE manager notes</th>
         </tr></thead>
-        <tbody>${deals.map(d => inspectRow(d, threshold)).join('')}</tbody>
+        <tbody>${deals.map(d => inspectRow(d)).join('')}</tbody>
       </table>
     </div>
   `;
@@ -426,20 +425,24 @@ function renderRecentWinsGrouped(wins) {
     const qTotal = qg.items.reduce((s, w) => s + (w.amount || 0), 0);
     const seGroups = groupBy(qg.items, w => w.se_name);
     return `
-      <div class="group-header${qi === 0 ? ' is-first' : ''}">${qg.key} · ${qg.items.length} win${qg.items.length === 1 ? '' : 's'} · ${fmtMoney(qTotal)}</div>
-      ${seGroups.map(sg => {
-        const seTotal = sg.items.reduce((s, w) => s + (w.amount || 0), 0);
-        const noSe = sg.items[0].no_se;
-        return `
-          <div class="group-subheader">${sg.key} · ${sg.items.length} win${sg.items.length === 1 ? '' : 's'} · ${fmtMoney(seTotal)} ${noSe ? '<span class="badge badge-amber">No SE</span>' : ''}</div>
-          <div class="table-scroll">
-            <table>
-              <thead><tr><th>Opportunity</th><th>Win date</th><th>Amount</th><th>Status</th><th>Flags</th></tr></thead>
-              <tbody>${sg.items.map(recentWinRow).join('')}</tbody>
-            </table>
-          </div>
-        `;
-      }).join('')}
+      <details class="flyout wins-quarter${qi === 0 ? ' is-first' : ''}" open>
+        <summary>${qg.key} · ${qg.items.length} win${qg.items.length === 1 ? '' : 's'} · ${fmtMoney(qTotal)}</summary>
+        ${seGroups.map(sg => {
+          const seTotal = sg.items.reduce((s, w) => s + (w.amount || 0), 0);
+          const noSe = sg.items[0].no_se;
+          return `
+            <details class="flyout wins-se" open>
+              <summary>${sg.key} · ${sg.items.length} win${sg.items.length === 1 ? '' : 's'} · ${fmtMoney(seTotal)} ${noSe ? '<span class="badge badge-amber">No SE</span>' : ''}</summary>
+              <div class="table-scroll">
+                <table>
+                  <thead><tr><th>Opportunity</th><th>Win date</th><th>Amount</th><th>Status</th><th>Flags</th></tr></thead>
+                  <tbody>${sg.items.map(recentWinRow).join('')}</tbody>
+                </table>
+              </div>
+            </details>
+          `;
+        }).join('')}
+      </details>
     `;
   }).join('');
 }
@@ -448,20 +451,16 @@ async function renderTechForecast() {
   const data = await API.get('/api/tech-forecast');
   state.reps = await API.get('/api/reps');
   const winRateSummary = await API.get('/api/closed-deals/summary');
-  const threshold = data.must_win_threshold;
   const deals = data.deals;
 
   const totalArr = deals.reduce((sum, d) => sum + (d.amount || 0), 0);
-  const mustWins = deals.filter(d => d.amount >= threshold);
   const riskDeals = deals.filter(d => d.forecast_status === 'Forecasted Risk');
   const staleDeals = deals.filter(d => d.notes_stale);
   const needsLeadSeDeals = deals.filter(d => d.needs_lead_se).sort((a, b) => (b.amount || 0) - (a.amount || 0));
   const inspectDeals = deals.filter(d => d.presales_stage !== '6 - Technical Win');
-  const inspectMustWin = inspectDeals.filter(d => d.amount >= threshold);
-  const inspectBelow = inspectDeals.filter(d => d.amount < threshold);
   const wrapUpDeals = deals
     .filter(d => d.presales_stage !== '6 - Technical Win' && (d.forecast_status === 'Forecasted Risk' || d.notes_stale))
-    .sort((a, b) => (b.amount >= threshold) - (a.amount >= threshold) || b.amount - a.amount);
+    .sort((a, b) => b.amount - a.amount);
 
   const el = document.getElementById('tech-forecast-content');
   el.innerHTML = `
@@ -489,7 +488,6 @@ async function renderTechForecast() {
 
     <div class="stat-grid">
       <div class="stat-card"><div class="stat-value">${fmtMoney(totalArr)}</div><div class="stat-label">Total Tech Forecast ARR</div></div>
-      <div class="stat-card"><div class="stat-value">${mustWins.length}</div><div class="stat-label">Must-Wins ($150K+) — ${fmtMoney(mustWins.reduce((s, d) => s + (d.amount || 0), 0))}</div></div>
       <div class="stat-card"><div class="stat-value">${riskDeals.length}</div><div class="stat-label">Forecasted Risk</div></div>
       <div class="stat-card"><div class="stat-value">${staleDeals.length}</div><div class="stat-label">No update this week</div></div>
       <div class="stat-card"><div class="stat-value">${needsLeadSeDeals.length}</div><div class="stat-label">Needs Lead SE — ${fmtMoney(needsLeadSeDeals.reduce((s, d) => s + (d.amount || 0), 0))}</div></div>
@@ -511,14 +509,8 @@ async function renderTechForecast() {
     </div>
 
     <div class="card">
-      <div class="card-title">Look Forward &amp; Inspect — Must-Win Pipeline ($150K+) (${inspectMustWin.length})</div>
-      ${inspectMustWin.length ? inspectTable(inspectMustWin, threshold) : '<div class="empty-state">No open Must-Win deals synced yet</div>'}
-      ${inspectBelow.length ? `
-        <details class="flyout" style="margin-top:14px">
-          <summary>Show ${inspectBelow.length} deal${inspectBelow.length === 1 ? '' : 's'} below $150K</summary>
-          <div style="margin-top:10px">${inspectTable(inspectBelow, threshold)}</div>
-        </details>
-      ` : ''}
+      <div class="card-title">Look Forward &amp; Inspect — Open Pipeline (${inspectDeals.length})</div>
+      ${inspectDeals.length ? inspectTable(inspectDeals) : '<div class="empty-state">No open deals synced yet</div>'}
     </div>
 
     <div class="card">
@@ -533,7 +525,7 @@ async function renderTechForecast() {
                 <td>${forecastStatusBadge(d.forecast_status)}</td>
                 <td>${fmtMoney(d.amount)}</td>
                 <td>${seAssignSelect(d)}</td>
-                <td><div class="pill-row">${dealFlags(d, threshold)}</div></td>
+                <td><div class="pill-row">${dealFlags(d)}</div></td>
               </tr>
             `).join('')}
           </tbody>
