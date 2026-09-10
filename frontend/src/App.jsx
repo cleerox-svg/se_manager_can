@@ -5,6 +5,7 @@ import Toasts from './components/Toasts.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Team from './pages/Team.jsx';
 import Person from './pages/Person.jsx';
+import Settings from './pages/Settings.jsx';
 import { initTheme, setTheme } from './theme.js';
 import { subscribeToasts } from './toast.js';
 
@@ -24,6 +25,8 @@ function PageContent({ page, selectedRepId, onSelectPerson }) {
       return <Team onSelectPerson={onSelectPerson} />;
     case 'person':
       return <Person repId={selectedRepId} />;
+    case 'settings':
+      return <Settings />;
     default:
       return <h1>{PAGE_TITLES[page] || page}</h1>;
   }

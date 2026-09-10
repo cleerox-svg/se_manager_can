@@ -42,3 +42,15 @@ export function generateReview(repId, period) {
 export function saveReview(repId, period, content, status) {
   return API.post(`/api/reps/${repId}/reviews/${period}`, { content, status });
 }
+
+export function getSettings() {
+  return API.get('/api/settings');
+}
+
+export function syncSheets() {
+  return API.post('/api/sync/sheets');
+}
+
+export function syncSlack() {
+  return API.post('/api/sync/slack');
+}
