@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { getTechForecast } from '../../api.js';
 import { toast } from '../../toast.js';
+import LookBack from './LookBack.jsx';
 import MacroView from './MacroView.jsx';
 import TeamPrepMessage from './TeamPrepMessage.jsx';
 
@@ -66,10 +67,7 @@ export default function TechForecast() {
         <div className="empty-state">Coming soon</div>
       </div>
 
-      <div className="card">
-        <div className="card-title">Look Back — Recent Technical Wins</div>
-        <div className="empty-state">Coming soon</div>
-      </div>
+      <LookBack wins={data.recent_wins} />
 
       <div className="card">
         <div className="card-title">Look Forward &amp; Inspect — Open Pipeline</div>
