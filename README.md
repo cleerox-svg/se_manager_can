@@ -142,6 +142,22 @@ copy .env.example .env
 py app.py
 ```
 
+The frontend is being migrated to React (see `REACT_MIGRATION_PLAN.md`) — a
+Vite app scaffolded under `frontend/` builds to `frontend/dist`, which Flask
+will serve at `/` once the migration reaches its Phase 6 cutover. Until then,
+`GET /` keeps serving the existing vanilla JS SPA unchanged. To build the new
+frontend (not yet wired up):
+
+```bash
+cd frontend
+npm install
+npm run build
+```
+
+For frontend development with hot reload, run `npm run dev` inside
+`frontend/` (proxies `/api/*` to the Flask server on port 5050) alongside
+`py app.py`.
+
 Data gets in via one of two paths — see [SETUP.md](SETUP.md):
 - **Ask Claude to sync** (no setup) — Claude uses its own Google Sheets /
   Slack MCP access and loads the result with `mcp_ingest.py`.

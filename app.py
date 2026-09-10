@@ -41,6 +41,11 @@ def current_half() -> str:
 
 @app.route("/")
 def index():
+    # Production serve path decided in Phase 0 of the React migration
+    # (see REACT_MIGRATION_PLAN.md): once every page is ported, this route
+    # will serve frontend/dist/index.html (built via `npm run build` in
+    # frontend/) instead of the template below. Until the Phase 6 cutover,
+    # it keeps rendering the legacy vanilla JS SPA unchanged.
     return render_template("index.html")
 
 
