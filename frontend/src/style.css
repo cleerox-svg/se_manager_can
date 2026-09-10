@@ -1,0 +1,279 @@
+/* ── SE Manager Hub — Okta Dark Theme (shared tokens with NaughtRFP) ────── */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+:root {
+  --bg-app:        #07111E;
+  --bg-nav:        #091628;
+  --bg-card:       #0D1E35;
+  --bg-card-hover: #102343;
+  --bg-input:      #060f1c;
+  --bg-modal:      #0C1B30;
+  --bg-tag:        #0F2040;
+
+  --border:        #1A3456;
+  --border-active: #007DC1;
+  --border-focus:  #00A4E0;
+
+  --okta-blue:     #007DC1;
+  --okta-blue-lt:  #00A4E0;
+  --okta-blue-dim: rgba(0,125,193,.15);
+  --okta-navy:     #00297A;
+
+  --green:  #00C58E;
+  --amber:  #F5A623;
+  --red:    #E03131;
+  --purple: #9B6BFA;
+  --teal:   #00B4C8;
+
+  --text-primary:   #E8EEF5;
+  --text-secondary: #7B9CB5;
+  --text-muted:     #4A6580;
+  --text-accent:    #00A4E0;
+
+  --radius:    8px;
+  --radius-lg: 13px;
+
+  --depth-raised: inset 0 1px 0 rgba(255,255,255,.07), 0 4px 16px rgba(0,0,0,.24), 0 1px 4px rgba(0,0,0,.14);
+  --depth-raised-hover: inset 0 1px 0 rgba(255,255,255,.1), 0 8px 28px rgba(0,0,0,.3), 0 2px 6px rgba(0,0,0,.18);
+  --depth-inset: inset 0 2px 5px rgba(0,0,0,.28), inset 0 1px 2px rgba(0,0,0,.18);
+  --depth-inset-focus: inset 0 2px 5px rgba(0,0,0,.28), 0 0 0 2px rgba(0,125,193,.22);
+  --glow-blue: 0 0 16px rgba(0,125,193,.45), 0 4px 12px rgba(0,0,0,.3);
+  --card-grad: linear-gradient(180deg, rgba(255,255,255,.03) 0%, var(--bg-card) 100%);
+  --shadow:      0 4px 24px rgba(0,0,0,.4);
+  --shadow-card: 0 2px 12px rgba(0,0,0,.3);
+
+  --sidebar-w: 240px;
+  --transition: 180ms ease;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 14px; }
+body {
+  font-family: 'Inter', -apple-system, sans-serif;
+  background: var(--bg-app);
+  color: var(--text-primary);
+  min-height: 100vh;
+}
+a { color: var(--okta-blue-lt); text-decoration: none; }
+a:hover { color: var(--text-primary); }
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--okta-blue); }
+
+/* ── Sidebar ─────────────────────────────────────────────────────────────── */
+#sidebar {
+  position: fixed; top: 0; left: 0; bottom: 0; z-index: 100;
+  width: var(--sidebar-w);
+  background: var(--bg-nav);
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column;
+}
+.sidebar-header {
+  padding: 20px 18px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 11px;
+}
+.logo-mark {
+  width: 36px; height: 36px; flex-shrink: 0; border-radius: 9px;
+  background: linear-gradient(160deg, #1fb0ee, #0042a0);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; color: #fff;
+  box-shadow: 0 4px 10px rgba(0,80,180,.5);
+}
+.sidebar-wordmark { font-size: 1.02rem; font-weight: 700; letter-spacing: -.3px; }
+.sidebar-sub { font-size: .68rem; color: var(--text-muted); margin-top: 1px; }
+
+.sidebar-nav { flex: 1; overflow-y: auto; padding: 14px 10px; display: flex; flex-direction: column; gap: 5px; }
+.sidebar-btn {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px; border-radius: var(--radius);
+  color: var(--text-secondary); font-size: .86rem; font-weight: 500;
+  cursor: pointer; border: none; background: none; width: 100%; text-align: left;
+  transition: var(--transition);
+}
+.sidebar-btn:hover { background: var(--bg-card-hover); color: var(--text-primary); }
+.sidebar-btn.active { background: var(--okta-blue-dim); color: var(--okta-blue-lt); box-shadow: inset 0 0 0 1px rgba(0,125,193,.3); }
+.sidebar-icon { font-size: 1rem; width: 18px; text-align: center; }
+
+.sidebar-footer { padding: 12px 14px 16px; border-top: 1px solid var(--border); font-size: .72rem; color: var(--text-muted); }
+
+/* ── App shell ───────────────────────────────────────────────────────────── */
+#app { margin-left: var(--sidebar-w); min-height: 100vh; }
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 28px; border-bottom: 1px solid var(--border);
+  background: var(--bg-app);
+  position: sticky; top: 0; z-index: 50;
+}
+.topbar h1 { font-size: 1.15rem; font-weight: 600; }
+.topbar .sub { font-size: .78rem; color: var(--text-secondary); margin-top: 2px; }
+
+.page { display: none; padding: 24px 28px 60px; }
+.page.active { display: block; }
+
+/* ── Cards ───────────────────────────────────────────────────────────────── */
+.card {
+  background: var(--card-grad);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--depth-raised);
+  padding: 18px 20px;
+}
+.card + .card { margin-top: 14px; }
+.card-title { font-size: .8rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 12px; text-transform: uppercase; letter-spacing: .04em; }
+
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }
+.stat-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--depth-raised); }
+.stat-value { font-size: 1.6rem; font-weight: 700; }
+.stat-label { font-size: .74rem; color: var(--text-secondary); margin-top: 2px; }
+
+/* ── ARR goal bar (total vs target) ─────────────────────────────────────── */
+.goal-bar-wrap { min-width: 160px; }
+.goal-bar { position: relative; height: 8px; border-radius: 4px; background: var(--bg-tag); overflow: visible; }
+.goal-bar-fill { position: absolute; inset: 0 auto 0 0; height: 100%; border-radius: 4px; background: var(--okta-blue); transition: var(--transition); }
+.goal-bar-fill.met { background: var(--green); }
+.goal-bar-tick { position: absolute; top: -2px; bottom: -2px; left: 100%; width: 2px; background: var(--text-muted); }
+.goal-bar-label { display: flex; justify-content: space-between; gap: 8px; font-size: .72rem; color: var(--text-secondary); margin-top: 5px; }
+.goal-bar-label .pct { font-weight: 700; color: var(--text-primary); }
+.goal-bar-label .pct.met { color: var(--green); }
+.goal-bar-target-input { width: 90px; padding: 3px 6px; font-size: .72rem; }
+.goal-bar-fill.accent { background: var(--purple); }
+
+/* ── Win rate (% Closed Won / % Tech Win) ───────────────────────────────── */
+.winrate-team { display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 16px; }
+.winrate-team-metric { flex: 1; min-width: 180px; }
+.winrate-team-metric-label { font-size: .72rem; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; }
+.winrate-reps { display: flex; flex-direction: column; gap: 4px; }
+.winrate-rep-row { display: grid; grid-template-columns: 140px 1fr; align-items: center; gap: 14px; padding: 9px 0; border-top: 1px solid var(--border); }
+.winrate-rep-row:first-child { border-top: none; }
+.winrate-rep-name { font-size: .82rem; font-weight: 600; color: var(--text-primary); }
+.winrate-rep-bars { display: flex; gap: 20px; flex-wrap: wrap; }
+.winrate-rep-bar { flex: 1; min-width: 150px; }
+.winrate-rep-bar-label { font-size: .68rem; color: var(--text-muted); display: block; margin-bottom: 3px; }
+
+/* ── Table ───────────────────────────────────────────────────────────────── */
+table { width: 100%; border-collapse: collapse; font-size: .84rem; }
+th { text-align: left; color: var(--text-secondary); font-weight: 600; font-size: .72rem; text-transform: uppercase; letter-spacing: .03em; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+td { padding: 10px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+tr:hover td { background: var(--bg-card-hover); }
+tr.clickable { cursor: pointer; }
+
+/* ── Badges ──────────────────────────────────────────────────────────────── */
+.badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 20px; font-size: .68rem; font-weight: 600; white-space: nowrap; }
+.badge-blue   { background: var(--okta-blue-dim); color: var(--okta-blue-lt); }
+.badge-green  { background: rgba(0,197,142,.14); color: var(--green); }
+.badge-amber  { background: rgba(245,166,35,.14); color: var(--amber); }
+.badge-red    { background: rgba(224,49,49,.14); color: var(--red); }
+.badge-purple { background: rgba(155,107,250,.14); color: var(--purple); }
+.badge-muted  { background: var(--bg-tag); color: var(--text-muted); }
+
+/* ── Buttons / inputs ────────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 16px; border-radius: var(--radius);
+  font-size: .82rem; font-weight: 600; cursor: pointer;
+  border: 1px solid var(--border); background: var(--bg-card); color: var(--text-primary);
+  transition: var(--transition);
+}
+.btn:hover { background: var(--bg-card-hover); border-color: var(--border-active); }
+.btn-primary { background: var(--okta-blue); border-color: var(--okta-blue); color: #fff; box-shadow: var(--glow-blue); }
+.btn-primary:hover { background: var(--okta-blue-lt); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+
+select, input[type="text"], input[type="search"], input[type="number"], textarea {
+  background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius);
+  color: var(--text-primary); padding: 8px 12px; font-size: .84rem; font-family: inherit;
+  box-shadow: var(--depth-inset);
+}
+select:focus, input:focus, textarea:focus { outline: none; border-color: var(--border-focus); box-shadow: var(--depth-inset-focus); }
+textarea { width: 100%; min-height: 320px; line-height: 1.5; resize: vertical; }
+
+.filter-row { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+
+/* ── Toasts ──────────────────────────────────────────────────────────────── */
+#toasts { position: fixed; bottom: 20px; right: 20px; z-index: 999; display: flex; flex-direction: column; gap: 8px; }
+.toast { padding: 10px 16px; border-radius: var(--radius); background: var(--bg-modal); border: 1px solid var(--border); box-shadow: var(--shadow); font-size: .82rem; }
+.toast.error { border-color: var(--red); color: var(--red); }
+.toast.success { border-color: var(--green); color: var(--green); }
+
+/* ── Misc ────────────────────────────────────────────────────────────────── */
+.empty-state { text-align: center; padding: 60px 20px; color: var(--text-muted); }
+.empty-icon { font-size: 2rem; margin-bottom: 10px; }
+.pill-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+.tab-btn { padding: 8px 14px; font-size: .82rem; font-weight: 600; color: var(--text-secondary); cursor: pointer; border-bottom: 2px solid transparent; background: none; border-top: none; border-left: none; border-right: none; }
+.tab-btn.active { color: var(--okta-blue-lt); border-bottom-color: var(--okta-blue); }
+.inactive-flag { opacity: .55; }
+.slack-note { padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 8px; font-size: .82rem; background: var(--bg-card); }
+
+/* ── Present mode ────────────────────────────────────────────────────────── */
+.present-exit-btn { display: none; }
+body.present-mode #sidebar { display: none; }
+body.present-mode #app { margin-left: 0; }
+body.present-mode .topbar { display: none; }
+body.present-mode .present-exit-btn {
+  display: inline-flex; position: fixed; top: 14px; right: 20px; z-index: 200;
+  padding: 8px 14px; border-radius: var(--radius); font-size: .78rem; font-weight: 600;
+  border: 1px solid var(--border); background: var(--bg-modal); color: var(--text-secondary); cursor: pointer;
+}
+body.present-mode .present-exit-btn:hover { color: var(--text-primary); border-color: var(--border-active); }
+body.present-mode .page { padding-top: 50px; }
+.slack-note .meta { font-size: .68rem; color: var(--text-muted); margin-bottom: 4px; }
+
+/* ── Light mode ──────────────────────────────────────────────────────────── */
+body.light-mode {
+  --bg-app:        #FFFFFF;
+  --bg-nav:        #FFFFFF;
+  --bg-card:       #FFFFFF;
+  --bg-card-hover: #FFFFFF;
+  --bg-input:      #FFFFFF;
+  --bg-modal:      #FFFFFF;
+  --bg-tag:        #FFFFFF;
+
+  --border:        #D8E1EC;
+  --border-active: #007DC1;
+  --border-focus:  #00A4E0;
+
+  --text-primary:   #142235;
+  --text-secondary: #4C6478;
+  --text-muted:     #8398AC;
+  --text-accent:    #007DC1;
+
+  --depth-raised: inset 0 1px 0 rgba(255,255,255,.6), 0 4px 16px rgba(20,34,53,.08), 0 1px 4px rgba(20,34,53,.05);
+  --depth-raised-hover: inset 0 1px 0 rgba(255,255,255,.7), 0 8px 28px rgba(20,34,53,.1), 0 2px 6px rgba(20,34,53,.06);
+  --depth-inset: inset 0 2px 5px rgba(20,34,53,.08), inset 0 1px 2px rgba(20,34,53,.05);
+  --depth-inset-focus: inset 0 2px 5px rgba(20,34,53,.08), 0 0 0 2px rgba(0,125,193,.18);
+  --card-grad: linear-gradient(180deg, rgba(20,34,53,.015) 0%, var(--bg-card) 100%);
+  --shadow:      0 4px 24px rgba(20,34,53,.12);
+  --shadow-card: 0 2px 12px rgba(20,34,53,.08);
+}
+body.light-mode .btn-primary { color: #fff; }
+
+/* ── Sub-threshold flyout ────────────────────────────────────────────────── */
+.flyout summary { cursor: pointer; font-size: .82rem; font-weight: 600; color: var(--okta-blue-lt); padding: 8px 0; list-style: none; }
+.flyout summary::-webkit-details-marker { display: none; }
+.flyout summary::before { content: '▸ '; }
+.flyout[open] summary::before { content: '▾ '; }
+.table-scroll { overflow-x: auto; }
+
+/* ── Recent Technical Wins: nested collapsible quarter/SE groups ───────── */
+/* Reuses .flyout for the arrow marker + hide-default-marker + pointer behavior,
+   but overrides font/color/spacing so two nested flyout levels read like the
+   old .group-header / .group-subheader hierarchy instead of two identical
+   blue accordion rows. */
+.flyout.wins-quarter { margin: 16px 0 8px; padding-top: 12px; border-top: 1px solid var(--border); }
+.flyout.wins-quarter.is-first { margin-top: 0; padding-top: 0; border-top: none; }
+.flyout.wins-quarter > summary {
+  font-size: .74rem; font-weight: 700; color: var(--text-secondary);
+  text-transform: uppercase; letter-spacing: .04em; padding: 4px 0;
+}
+.flyout.wins-se { margin: 4px 0 10px 18px; }
+.flyout.wins-se > summary {
+  font-size: .78rem; font-weight: 600; color: var(--text-primary);
+  text-transform: none; letter-spacing: normal; padding: 3px 0;
+}
+.flyout.wins-se .table-scroll { margin-left: 18px; }
