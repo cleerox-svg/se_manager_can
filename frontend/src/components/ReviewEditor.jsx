@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { generateReview, saveReview } from '../api.js';
 import { toast } from '../toast.js';
 
-export default function ReviewEditor({ repId, period, initialContent, onSaved }) {
+export default function ReviewEditor({ repId, period, initialContent, onSaved, generateLabel }) {
   const [content, setContent] = useState(initialContent || '');
   const [busy, setBusy] = useState(false);
 
@@ -39,7 +39,7 @@ export default function ReviewEditor({ repId, period, initialContent, onSaved })
       />
       <div className="pill-row">
         <button type="button" onClick={handleGenerate} disabled={busy}>
-          Generate draft
+          {generateLabel || 'Generate draft'}
         </button>
         <button type="button" onClick={() => handleSave('draft')} disabled={busy}>
           Save draft

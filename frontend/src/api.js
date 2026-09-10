@@ -23,6 +23,14 @@ export function updateRep(repId, fields) {
   return API.post(`/api/reps/${repId}`, fields);
 }
 
+export function getRepDeals(repId) {
+  return API.get(`/api/reps/${repId}/deals`);
+}
+
+export function getRepSlack(repId) {
+  return API.get(`/api/reps/${repId}/slack`);
+}
+
 export function getReview(repId, period) {
   return API.get(`/api/reps/${repId}/reviews/${period}`);
 }

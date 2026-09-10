@@ -27,7 +27,7 @@ function reviewStatusBadge(status) {
   return <span className="badge badge-muted">Not started</span>;
 }
 
-export default function Team() {
+export default function Team({ onSelectPerson }) {
   const [reps, setReps] = useState([]);
   const [expandedId, setExpandedId] = useState(null);
 
@@ -77,12 +77,15 @@ export default function Team() {
           <tbody>
             {reps.map((rep) => (
               <Fragment key={rep.id}>
-                <tr className={rep.active ? '' : 'inactive-flag'}>
+                <tr
+                  className={rep.active ? '' : 'inactive-flag'}
+                  onClick={() => onSelectPerson && onSelectPerson(rep.id)}
+                >
                   <td className="clickable">{rep.name}</td>
                   <td>{rep.title}</td>
                   <td>{rep.deal_count}</td>
                   <td>{fmtMoney(rep.tech_forecast_arr)}</td>
-                  <td>
+                  <td onClick={(e) => e.stopPropagation()}>
                     {arrGoalBar(rep.arr_total, rep.arr_target)}
                     <input
                       type="number"
@@ -90,7 +93,13 @@ export default function Team() {
                       onBlur={(e) => updateRepTarget(rep, e.target.value)}
                     />
                   </td>
-                  <td className="clickable" onClick={() => toggleReviewRow(rep.id)}>
+                  <td
+                    className="clickable"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleReviewRow(rep.id);
+                    }}
+                  >
                     {reviewStatusBadge(rep.review_status)}
                   </td>
                   <td>
@@ -101,7 +110,13 @@ export default function Team() {
                     )}
                   </td>
                   <td>
-                    <button type="button" onClick={() => toggleRepActive(rep)}>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleRepActive(rep);
+                      }}
+                    >
                       Mark {rep.active ? 'inactive' : 'active'}
                     </button>
                   </td>
