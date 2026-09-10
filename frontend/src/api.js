@@ -54,3 +54,7 @@ export function syncSheets() {
 export function syncSlack() {
   return API.post('/api/sync/slack');
 }
+
+export function getTechForecast() {
+  return API.get('/api/tech-forecast');
+}

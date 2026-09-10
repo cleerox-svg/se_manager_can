@@ -6,6 +6,7 @@ import Dashboard from './pages/Dashboard.jsx';
 import Team from './pages/Team.jsx';
 import Person from './pages/Person.jsx';
 import Settings from './pages/Settings.jsx';
+import TechForecast from './pages/TechForecast/TechForecast.jsx';
 import { initTheme, setTheme } from './theme.js';
 import { subscribeToasts } from './toast.js';
 
@@ -25,6 +26,8 @@ function PageContent({ page, selectedRepId, onSelectPerson }) {
       return <Team onSelectPerson={onSelectPerson} />;
     case 'person':
       return <Person repId={selectedRepId} />;
+    case 'tech-forecast':
+      return <TechForecast />;
     case 'settings':
       return <Settings />;
     default:
