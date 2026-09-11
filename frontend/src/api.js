@@ -62,3 +62,9 @@ export function getTechForecast() {
 export function generatePrereadDraft() {
   return API.post('/api/tech-forecast/preread/draft', {});
 }
+
+export function assignSe(sheetKey, seRepId) {
+  return API.post(`/api/tech-forecast/${encodeURIComponent(sheetKey)}/assign-se`, {
+    se_rep_id: seRepId,
+  });
+}

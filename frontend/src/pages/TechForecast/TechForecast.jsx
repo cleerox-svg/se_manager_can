@@ -1,17 +1,26 @@
-import { useEffect, useState } from 'react';
-import { getTechForecast } from '../../api.js';
+import { useCallback, useEffect, useState } from 'react';
+import { getReps, getTechForecast } from '../../api.js';
 import { toast } from '../../toast.js';
 import LookBack from './LookBack.jsx';
+import LookForwardInspect from './LookForwardInspect.jsx';
 import MacroView from './MacroView.jsx';
 import TeamPrepMessage from './TeamPrepMessage.jsx';
 
 export default function TechForecast() {
   const [data, setData] = useState(null);
+  const [reps, setReps] = useState([]);
+
+  const refresh = useCallback(() => {
+    return getTechForecast().then((res) => setData(res));
+  }, []);
 
   useEffect(() => {
     let active = true;
     getTechForecast().then((res) => {
       if (active) setData(res);
+    });
+    getReps().then((res) => {
+      if (active) setReps(res);
     });
     return () => {
       active = false;
@@ -58,21 +67,13 @@ export default function TechForecast() {
       <MacroView deals={data.deals} />
 
       <div className="card">
-        <div className="card-title">Needs Lead SE</div>
-        <div className="empty-state">Coming soon</div>
-      </div>
-
-      <div className="card">
         <div className="card-title">Win Rate — Closed Deals</div>
         <div className="empty-state">Coming soon</div>
       </div>
 
       <LookBack wins={data.recent_wins} />
 
-      <div className="card">
-        <div className="card-title">Look Forward &amp; Inspect — Open Pipeline</div>
-        <div className="empty-state">Coming soon</div>
-      </div>
+      <LookForwardInspect deals={data.deals} reps={reps} onAssigned={refresh} />
 
       <div className="card">
         <div className="card-title">Wrap-Up &amp; Risk</div>
