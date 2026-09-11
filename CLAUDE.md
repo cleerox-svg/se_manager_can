@@ -75,7 +75,12 @@ Presales Stage is the separate flat per-row column that drives `tech_win`.
 Because of this, `/api/closed-deals/summary`'s team-level query filters
 `WHERE se_rep_id IS NOT NULL` and reports `closed_won`/`closed_won_pct`
 alongside `tech_win_pct` — Tech Win Rate's denominator is "closed deals with
-an assigned SE," not "closed-won deals."
+an assigned SE," not "closed-won deals." Any other query against
+`closed_deals` — e.g. `app.py`'s `list_reps` (`/api/reps`) `arr_total`
+subquery — must add `AND sales_stage = '10 - Closed/Won'` too, or it will
+double-count Lost-deal amounts as revenue; this exact bug shipped once
+(fixed 2026-09) because the mixed-data warning above wasn't cross-referenced
+from that second query site.
 
 "Claude This q and next" is nested one level deeper than SFDC/Sheet3:
 group-header rows run Lead Sales Engineer > Deal Forecast Status, each

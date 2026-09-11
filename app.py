@@ -73,7 +73,10 @@ def list_reps():
             SELECT r.*,
                 (SELECT COUNT(*) FROM deals d WHERE d.se_rep_id = r.id) AS deal_count,
                 (SELECT COALESCE(SUM(amount), 0) FROM closed_deals cd
-                    WHERE cd.se_rep_id = r.id) AS arr_total,
+                    WHERE cd.se_rep_id = r.id
+                    AND cd.sales_stage = '10 - Closed/Won') AS arr_total,
+                -- tech_forecast_arr sums tech_forecast_deals, not closed_deals, so it's
+                -- unaffected by the mixed Won+Lost closed_deals data (see CLAUDE.md).
                 (SELECT COALESCE(SUM(tf.amount), 0) FROM tech_forecast_deals tf
                     WHERE tf.opportunity_name IN (
                         SELECT d2.opportunity_name FROM deals d2 WHERE d2.se_rep_id = r.id
