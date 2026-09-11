@@ -59,9 +59,6 @@ export default function Team({ onSelectPerson }) {
 
   return (
     <>
-      <div className="section-header">
-        <h2>Team</h2>
-      </div>
       <div id="team-content" className="card">
         <table>
           <thead>
@@ -114,6 +111,7 @@ export default function Team({ onSelectPerson }) {
                   <td>
                     <button
                       type="button"
+                      className="btn"
                       onClick={(e) => {
                         e.stopPropagation();
                         toggleRepActive(rep);

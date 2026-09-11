@@ -77,10 +77,16 @@ def list_reps():
                     AND cd.sales_stage = '10 - Closed/Won') AS arr_total,
                 -- tech_forecast_arr sums tech_forecast_deals, not closed_deals, so it's
                 -- unaffected by the mixed Won+Lost closed_deals data (see CLAUDE.md).
+                -- Attribution mirrors /api/tech-forecast's precedence (assigned override >
+                -- lead_se_name match > opportunity_name fallback) so totals here agree with
+                -- that page instead of only counting the fallback path.
                 (SELECT COALESCE(SUM(tf.amount), 0) FROM tech_forecast_deals tf
-                    WHERE tf.opportunity_name IN (
-                        SELECT d2.opportunity_name FROM deals d2 WHERE d2.se_rep_id = r.id
-                    )) AS tech_forecast_arr,
+                    WHERE r.id = COALESCE(
+                        tf.assigned_se_rep_id,
+                        (SELECT r2.id FROM se_reps r2 WHERE lower(r2.name) = lower(tf.lead_se_name) LIMIT 1),
+                        (SELECT d2.se_rep_id FROM deals d2 WHERE d2.opportunity_name = tf.opportunity_name ORDER BY d2.id LIMIT 1)
+                    )
+                ) AS tech_forecast_arr,
                 rv.status AS review_status,
                 rv.content AS review_content
             FROM se_reps r
