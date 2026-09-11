@@ -206,7 +206,11 @@ Data gets in via one of two paths — see [SETUP.md](SETUP.md):
 
 ## Conventions
 
-- Local only for now — no GitHub, no remote repo. Local `git commit`s are
-  fine; nothing gets pushed anywhere.
+- No GitHub by default — work stays local only. Local `git commit`s are
+  fine; don't create a remote repo or run `git push` unless explicitly
+  authorized for that specific task. Exception on record: the React
+  migration (`REACT_MIGRATION_PLAN.md`, Phases 0-6) was explicitly
+  authorized to push each phase to `origin/main`, and that migration is now
+  complete — see CLAUDE.md's Git workflow section for the full policy.
 - Update this README after any non-trivial feature change.
 - Work in small, reviewable chunks with a visible task list.
