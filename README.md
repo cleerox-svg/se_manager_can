@@ -61,15 +61,8 @@ on [NaughtRFP](../rfp-responder)'s stack and Okta dark-theme UI.
   and/or stale-notes deals, same SE display as Look Forward & Inspect).
   A deal is flagged stale ("No update this week")
   when its Pre-Sales Next Steps text is unchanged from the previous sync —
-  not by parsing dates in the freeform text. A "Team Prep Message" card sits
-  above Macro View with a "Generate draft" button that formats the weekly
-  Slack preread (`/api/tech-forecast/preread`) into a ready-to-post message
-  in an editable textarea plus a "Copy to clipboard" button — copy-paste
-  only, no direct-to-Slack send (the configured Slack token is
-  `search.messages`-scoped only) and no LLM call yet (no `LITELLM_API_KEY`
-  configured), so the draft is built with plain string templating in
-  `tech_forecast_report.build_slack_draft` rather than an AI prompt; swapping
-  in an LLM polish pass later only needs to change that one function.
+  not by parsing dates in the freeform text. See "Actions" below for the
+  weekly Slack preread draft (moved off this page into its own tab).
   Opportunity links in the draft (`_slack_opp_link`) render as plain
   `Name (https://...)` text rather than Slack mrkdwn `<url|name>` syntax,
   since this is a copy-paste-into-compose-box workflow, not a
@@ -99,6 +92,15 @@ on [NaughtRFP](../rfp-responder)'s stack and Okta dark-theme UI.
   ones in "Come ready to discuss." A "Present mode" toggle hides the
   sidebar/topbar for clean screen-sharing during the Monday call. A
   light/dark theme toggle (sidebar footer) persists via `localStorage`.
+- **Actions** — its own tab with a "Team Prep Message" card (moved off the
+  Technical Forecast page). A "Generate draft" button formats the weekly
+  Slack preread (`/api/tech-forecast/preread`) into a ready-to-post message
+  in an editable textarea plus a "Copy to clipboard" button — copy-paste
+  only, no direct-to-Slack send (the configured Slack token is
+  `search.messages`-scoped only) and no LLM call yet (no `LITELLM_API_KEY`
+  configured), so the draft is built with plain string templating in
+  `tech_forecast_report.build_slack_draft` rather than an AI prompt; swapping
+  in an LLM polish pass later only needs to change that one function.
 - **SE attribution (Team ↔ Technical Forecast)** — the sheet now carries
   real Lead SE attribution natively (`lead_se_name`), so `app.py` resolves
   each deal's effective SE with this precedence: (1) an explicit manager

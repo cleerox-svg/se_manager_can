@@ -5,7 +5,6 @@ import { enterPresentMode, exitPresentMode } from '../../theme.js';
 import LookBack from './LookBack.jsx';
 import LookForwardInspect from './LookForwardInspect.jsx';
 import MacroView from './MacroView.jsx';
-import TeamPrepMessage from './TeamPrepMessage.jsx';
 import WrapUpRisk, { WinRateClosedDeals } from './WrapUpRisk.jsx';
 
 export default function TechForecast() {
@@ -65,8 +64,6 @@ export default function TechForecast() {
           <button className="btn btn-primary" onClick={enterPresentMode}>&#128225; Present mode</button>
         </div>
       </div>
-
-      <TeamPrepMessage />
 
       <MacroView deals={data.deals} />
 

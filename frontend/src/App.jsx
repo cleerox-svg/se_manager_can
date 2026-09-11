@@ -7,6 +7,7 @@ import Team from './pages/Team.jsx';
 import Person from './pages/Person.jsx';
 import Settings from './pages/Settings.jsx';
 import TechForecast from './pages/TechForecast/TechForecast.jsx';
+import Actions from './pages/Actions.jsx';
 import { initTheme, setTheme } from './theme.js';
 import { subscribeToasts } from './toast.js';
 
@@ -15,6 +16,7 @@ const PAGE_TITLES = {
   team: 'Team',
   person: 'Person',
   'tech-forecast': 'Technical Forecast',
+  actions: 'Actions',
   settings: 'Settings',
 };
 
@@ -28,6 +30,8 @@ function PageContent({ page, selectedRepId, onSelectPerson }) {
       return <Person repId={selectedRepId} />;
     case 'tech-forecast':
       return <TechForecast />;
+    case 'actions':
+      return <Actions />;
     case 'settings':
       return <Settings />;
     default:

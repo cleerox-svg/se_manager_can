@@ -2,6 +2,7 @@ const NAV_ITEMS = [
   { page: 'dashboard', icon: '▦', label: 'Dashboard' },
   { page: 'team', icon: '▤', label: 'Team' },
   { page: 'tech-forecast', icon: '▲', label: 'Technical Forecast' },
+  { page: 'actions', icon: '✎', label: 'Actions' },
   { page: 'settings', icon: '⚙', label: 'Settings' },
 ];
 
