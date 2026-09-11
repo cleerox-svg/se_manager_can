@@ -128,9 +128,10 @@ on [NaughtRFP](../rfp-responder)'s stack and Okta dark-theme UI.
 
 ## Stack
 
-Python 3.14 (`py`, not `python`) + Flask + SQLite3, vanilla JS/HTML frontend
-with no build step. Review drafting calls the LiteLLM proxy
-(`https://llm.atko.ai`) using the same client pattern as NaughtRFP.
+Python 3.14 (`py`, not `python`) + Flask + SQLite3, React (Vite) frontend
+under `frontend/`, built to `frontend/dist` and served by Flask at `/`.
+Review drafting calls the LiteLLM proxy (`https://llm.atko.ai`) using the
+same client pattern as NaughtRFP.
 
 ## Run it
 
@@ -139,20 +140,15 @@ py -m venv venv
 venv\Scripts\activate
 pip install -r requirements.txt
 copy .env.example .env
+cd frontend && npm install && npm run build && cd ..
 py app.py
 ```
 
-The frontend is being migrated to React (see `REACT_MIGRATION_PLAN.md`) — a
-Vite app scaffolded under `frontend/` builds to `frontend/dist`, which Flask
-will serve at `/` once the migration reaches its Phase 6 cutover. Until then,
-`GET /` keeps serving the existing vanilla JS SPA unchanged. To build the new
-frontend (not yet wired up):
-
-```bash
-cd frontend
-npm install
-npm run build
-```
+`GET /` serves the built React app from `frontend/dist` (Flask's static
+folder is pointed at it — see `app.py`). `frontend/dist` is committed to the
+repo, so `py app.py` works right after a fresh clone without needing Node —
+but re-run `npm run build` inside `frontend/` after pulling any change that
+touches `frontend/src/`, since the committed build won't update itself.
 
 For frontend development with hot reload, run `npm run dev` inside
 `frontend/` (proxies `/api/*` to the Flask server on port 5050) alongside

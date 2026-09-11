@@ -2,7 +2,7 @@ import os
 from datetime import datetime
 
 from dotenv import load_dotenv
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, request, send_from_directory
 
 import reviews
 import sheets_sync
@@ -20,7 +20,9 @@ SLACK_USER_TOKEN = os.environ.get("SLACK_USER_TOKEN", "")
 LITELLM_API_KEY = os.environ.get("LITELLM_API_KEY", "")
 LITELLM_BASE_URL = os.environ.get("LITELLM_BASE_URL", "https://llm.atko.ai")
 
-app = Flask(__name__)
+FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "frontend", "dist")
+
+app = Flask(__name__, static_folder=FRONTEND_DIST, static_url_path="")
 app.config["JSON_SORT_KEYS"] = False
 
 db = Database(DATABASE_PATH)
@@ -41,12 +43,11 @@ def current_half() -> str:
 
 @app.route("/")
 def index():
-    # Production serve path decided in Phase 0 of the React migration
-    # (see REACT_MIGRATION_PLAN.md): once every page is ported, this route
-    # will serve frontend/dist/index.html (built via `npm run build` in
-    # frontend/) instead of the template below. Until the Phase 6 cutover,
-    # it keeps rendering the legacy vanilla JS SPA unchanged.
-    return render_template("index.html")
+    # Phase 6 cutover: serves the Vite-built React app from frontend/dist.
+    # Hashed assets under frontend/dist/assets/ and root files (favicon.svg,
+    # icons.svg) are served by Flask's static handler above, since
+    # static_url_path="" maps them at the same root paths index.html expects.
+    return send_from_directory(app.static_folder, "index.html")
 
 
 # ── Settings ─────────────────────────────────────────────────────────────

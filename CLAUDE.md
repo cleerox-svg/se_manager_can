@@ -215,9 +215,7 @@ chunks with a visible task list.
 | `mcp_ingest.py` | CLI bridge — loads MCP-fetched JSON into the DB, no credentials needed |
 | `seed_arr_targets.py` | One-off: sets `se_reps.arr_target` by name (FY26 H2: Sean/Rishika $2.5M, Valentin/Nic $1.5M) |
 | `reviews.py` | LiteLLM-backed review drafting |
-| `static/style.css` | Okta dark theme (shared tokens with NaughtRFP) |
-| `static/app.js` | SPA frontend — router, API helper, page renderers |
-| `templates/index.html` | SPA shell |
+| `frontend/` | React (Vite) frontend — `src/api.js` (fetch helpers), `src/App.jsx` (shell/router), `src/pages/`, `src/components/`, `src/style.css` (ported Okta dark theme). `npm run build` in `frontend/` produces `frontend/dist`, which is committed and served by Flask at `/` (see `app.py`'s `static_folder`) |
 
 ## Not built yet
 
