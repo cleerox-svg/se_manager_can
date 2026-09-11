@@ -186,9 +186,15 @@ permanent rejection of the LLM path.
 
 ## Git workflow
 
-**No GitHub for now** — work stays local only. Local `git commit` is fine;
-do not create a remote repo or run `git push` unless the user explicitly
-says otherwise.
+**No GitHub by default** — work stays local only. Local `git commit` is fine;
+do not create a remote repo or run `git push` unless the user explicitly says
+otherwise for that specific task.
+
+Exception on record: the React migration (see `REACT_MIGRATION_PLAN.md`,
+Phases 0-6) was explicitly authorized by Claude Leroux on 2026-09-10 to push
+each phase's commit to `origin/main` as it completed. That authorization was
+scoped to this migration only — it does not extend to unrelated future work.
+Always confirm before pushing again outside of an explicitly authorized task.
 
 ## Docs
 
