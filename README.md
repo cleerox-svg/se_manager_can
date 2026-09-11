@@ -139,7 +139,8 @@ on [NaughtRFP](../rfp-responder)'s stack and Okta dark-theme UI.
 Python 3.14 (`py`, not `python`) + Flask + SQLite3, React (Vite) frontend
 under `frontend/`, built to `frontend/dist` and served by Flask at `/`.
 Review drafting calls the LiteLLM proxy (`https://llm.atko.ai`) using the
-same client pattern as NaughtRFP.
+same client pattern as NaughtRFP. Sidebar nav/theme-toggle icons are
+`lucide-react`.
 
 ## Run it
 
