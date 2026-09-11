@@ -52,6 +52,8 @@ class Database:
             c.execute("ALTER TABLE tech_forecast_deals ADD COLUMN pre_sales_next_steps TEXT")
         if "opportunity_id" not in cols:
             c.execute("ALTER TABLE tech_forecast_deals ADD COLUMN opportunity_id TEXT")
+        if "row_fingerprint" not in cols:
+            c.execute("ALTER TABLE tech_forecast_deals ADD COLUMN row_fingerprint TEXT")
 
         cols = {row["name"] for row in c.execute("PRAGMA table_info(closed_deals)")}
         if "opportunity_id" not in cols:
@@ -154,6 +156,7 @@ class Database:
                     pre_sales_next_steps     TEXT,
                     notes_prev_sync          TEXT,
                     notes_stale              INTEGER DEFAULT 0,
+                    row_fingerprint          TEXT,
                     assigned_se_rep_id       INTEGER REFERENCES se_reps(id),
                     last_synced_at           TEXT DEFAULT (datetime('now'))
                 );

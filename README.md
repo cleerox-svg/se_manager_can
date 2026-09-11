@@ -204,6 +204,13 @@ Data gets in via one of two paths — see [SETUP.md](SETUP.md):
   incoming Pre-Sales Next Steps against the previously-stored value per row
   to set `notes_stale`, and also captures a same-day snapshot (see
   `tech_forecast_snapshots` below).
+  Sync is delta-aware: `load_rows` pre-loads every existing row's stored
+  MD5 fingerprint (`row_fingerprint`, hashed from the 16 mutable text
+  fields plus parsed close date/technical win date/amount) in one query,
+  then skips the DB write entirely for any incoming row whose fingerprint
+  is unchanged — no wasted writes, and `_capture_snapshot` only fires when
+  at least one row actually changed or was deleted. The return value
+  reports `synced` (changed + new), `unchanged`, and `deleted` counts.
 - `tech_forecast_snapshots` — one row per sync day, holding that day's
   bucket totals and per-deal state as JSON — the baseline
   `tech_forecast_report.build_weekly_deltas` diffs the next sync against to
@@ -212,6 +219,24 @@ Data gets in via one of two paths — see [SETUP.md](SETUP.md):
 - `reviews` — drafted/edited review content, one row per (rep, period),
   `status` of `draft` or `final` — settable from either the Team page's
   inline editor or the Person page's Review tab.
+
+## Sub-agents
+
+Three Claude Code custom agents live in `.claude/agents/` and auto-load in
+every Claude Code session opened against this project — "sync tech
+forecast", "sync deals", and "sync Slack" requests are handled by the
+matching function-specific agent rather than ad-hoc instructions each time:
+
+| Agent | File | Trigger |
+|---|---|---|
+| `tech-forecast-sync` | `.claude/agents/tech-forecast-sync.md` | "sync tech forecast", "refresh tech forecast" |
+| `deals-sync` | `.claude/agents/deals-sync.md` | "sync deals", "refresh pipeline" |
+| `slack-sync` | `.claude/agents/slack-sync.md` | "sync Slack", "refresh Slack notes" |
+
+Each agent runs the full MCP-assisted sync flow for its data type: confirm
+the live tab name via gid, fetch data, write a temp JSON payload, run
+`mcp_ingest.py` through `venv/Scripts/python.exe`, delete the temp file,
+report the result (including the synced/unchanged/deleted counts above).
 
 ## Conventions
 

@@ -82,6 +82,15 @@ double-count Lost-deal amounts as revenue; this exact bug shipped once
 (fixed 2026-09) because the mixed-data warning above wasn't cross-referenced
 from that second query site.
 
+`list_reps`'s `tech_forecast_arr` subquery had a parallel bug (fixed
+2026-09-11): it attributed `tech_forecast_deals` rows to a rep via an
+opportunity_name→`deals.se_rep_id` join only, which is step 3 of
+`/api/tech-forecast`'s three-step precedence (`assigned_se_rep_id` override >
+case-insensitive `lead_se_name` match > opportunity_name fallback). Reps
+attributed via steps 1-2 got $0 in this column even with real forecasted ARR,
+and the column's total didn't match the Tech Forecast page. The subquery now
+mirrors the same three-step precedence as a correlated `COALESCE`.
+
 "Claude This q and next" is nested one level deeper than SFDC/Sheet3:
 group-header rows run Lead Sales Engineer > Deal Forecast Status, each
 carrying a `(<count>)` suffix, before the individual deal rows. Deals with
@@ -206,6 +215,18 @@ Phases 0-6) was explicitly authorized by Claude Leroux on 2026-09-10 to push
 each phase's commit to `origin/main` as it completed. That authorization was
 scoped to this migration only — it does not extend to unrelated future work.
 Always confirm before pushing again outside of an explicitly authorized task.
+
+## Sub-agents
+
+Three Claude Code custom agents live in `.claude/agents/` and are auto-loaded in every Claude Code session opened against this project directory:
+
+| Agent | File | Trigger |
+|---|---|---|
+| `tech-forecast-sync` | `.claude/agents/tech-forecast-sync.md` | "sync tech forecast", "refresh tech forecast" |
+| `deals-sync` | `.claude/agents/deals-sync.md` | "sync deals", "refresh pipeline" |
+| `slack-sync` | `.claude/agents/slack-sync.md` | "sync Slack", "refresh Slack notes" |
+
+Each agent handles the full MCP-assisted sync flow for its data type: confirm live tab name/gid, fetch data, write temp JSON payload, run `mcp_ingest.py` via `venv/Scripts/python.exe`, delete temp file, report result. Tab gid values are stable even when tab names change — agents always confirm the live name via `get_spreadsheet_info` before reading.
 
 ## Docs
 

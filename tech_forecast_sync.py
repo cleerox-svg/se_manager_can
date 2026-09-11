@@ -46,6 +46,7 @@ our own Lead SEs is still attached (e.g. Luis Santos, since gone inactive),
 since per Claude Leroux those deals aren't ours to track on this page.
 """
 
+import hashlib
 import json
 import re
 from datetime import date, datetime
@@ -195,23 +196,58 @@ def _normalize_values(values: list[list[str]]) -> list[dict]:
     return rows
 
 
+_FINGERPRINT_FIELDS = (
+    "lead_se_name", "opportunity_name", "opportunity_id",
+    "presales_stage", "forecast_status", "sales_stage", "deal_type",
+    "account_region", "geo_seg", "sales_segment", "sales_geo",
+    "opportunity_owner", "opportunity_owner_manager",
+    "se_manager_notes", "pre_sales_notes", "pre_sales_next_steps",
+)
+
+
+def _row_fingerprint(row: dict, close_date, technical_win_date, amount) -> str:
+    parts = [row.get(f) or "" for f in _FINGERPRINT_FIELDS]
+    parts += [close_date or "", technical_win_date or "", "" if amount is None else str(amount)]
+    return hashlib.md5("|".join(parts).encode()).hexdigest()
+
+
 def load_rows(db, rows: list[dict]) -> dict:
-    """Upsert already-normalized rows into the `tech_forecast_deals` table,
-    diffing Pre-Sales Next Steps against the prior sync to flag stale rows."""
-    seen_keys = []
+    """Upsert already-normalized rows into the `tech_forecast_deals` table.
+    Skips rows whose content hash matches the stored fingerprint (unchanged rows).
+    Returns counts of synced (changed+new), unchanged, and deleted rows."""
+    existing_rows: dict[str, dict] = {}
+    with db.conn() as c:
+        for r in c.execute(
+            "SELECT sheet_key, row_fingerprint, pre_sales_next_steps FROM tech_forecast_deals"
+        ):
+            existing_rows[r["sheet_key"]] = {
+                "fingerprint": r["row_fingerprint"],
+                "pre_sales_next_steps": r["pre_sales_next_steps"],
+            }
+
+    seen_keys: list[str] = []
+    changed_count = 0
+    unchanged_count = 0
+
     with db.conn() as c:
         for row in rows:
             close_date = _parse_date(row.get("close_date", ""))
             technical_win_date = _parse_date(row.get("technical_win_date", ""))
+            amount = _parse_amount(row.get("amount", ""))
             sheet_key = "|".join([row.get("opportunity_name", ""), row.get("close_date", "")])
             seen_keys.append(sheet_key)
 
+            new_fingerprint = _row_fingerprint(row, close_date, technical_win_date, amount)
+            existing = existing_rows.get(sheet_key)
+
+            if existing is not None and existing["fingerprint"] == new_fingerprint:
+                unchanged_count += 1
+                continue
+
             new_next_steps = row.get("pre_sales_next_steps", "")
-            existing = c.execute(
-                "SELECT pre_sales_next_steps FROM tech_forecast_deals WHERE sheet_key = ?", (sheet_key,)
-            ).fetchone()
             prior_next_steps = existing["pre_sales_next_steps"] if existing else None
             notes_stale = 1 if existing is not None and prior_next_steps == new_next_steps else 0
+            changed_count += 1
 
             c.execute("""
                 INSERT INTO tech_forecast_deals (
@@ -219,8 +255,8 @@ def load_rows(db, rows: list[dict]) -> dict:
                     forecast_status, sales_stage, deal_type, account_region, geo_seg, sales_segment,
                     sales_geo, close_date, technical_win_date, opportunity_owner, opportunity_owner_manager,
                     se_manager_notes, pre_sales_notes, pre_sales_next_steps, notes_prev_sync,
-                    notes_stale, last_synced_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                    notes_stale, row_fingerprint, last_synced_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
                 ON CONFLICT(sheet_key) DO UPDATE SET
                     lead_se_name = excluded.lead_se_name, opportunity_id = excluded.opportunity_id,
                     amount = excluded.amount,
@@ -236,25 +272,31 @@ def load_rows(db, rows: list[dict]) -> dict:
                     pre_sales_notes = excluded.pre_sales_notes,
                     pre_sales_next_steps = excluded.pre_sales_next_steps,
                     notes_prev_sync = excluded.notes_prev_sync,
-                    notes_stale = excluded.notes_stale, last_synced_at = datetime('now')
+                    notes_stale = excluded.notes_stale,
+                    row_fingerprint = excluded.row_fingerprint,
+                    last_synced_at = datetime('now')
             """, (
                 sheet_key, row.get("lead_se_name"), row.get("opportunity_name"), row.get("opportunity_id"),
-                _parse_amount(row.get("amount", "")),
+                amount,
                 row.get("presales_stage"), row.get("forecast_status"), row.get("sales_stage"),
                 row.get("deal_type"), row.get("account_region"), row.get("geo_seg"),
                 row.get("sales_segment"), row.get("sales_geo"), close_date, technical_win_date,
                 row.get("opportunity_owner"), row.get("opportunity_owner_manager"),
                 row.get("se_manager_notes"), row.get("pre_sales_notes", ""), new_next_steps,
-                prior_next_steps, notes_stale,
+                prior_next_steps, notes_stale, new_fingerprint,
             ))
 
+        deleted_count = 0
         if seen_keys:
+            to_delete = set(existing_rows) - set(seen_keys)
+            deleted_count = len(to_delete)
             placeholders = ",".join("?" * len(seen_keys))
             c.execute(f"DELETE FROM tech_forecast_deals WHERE sheet_key NOT IN ({placeholders})", seen_keys)
 
     db.set_setting("tech_forecast_last_synced_at", datetime.now().isoformat())
-    _capture_snapshot(db)
-    return {"synced": len(rows)}
+    if changed_count or deleted_count:
+        _capture_snapshot(db)
+    return {"synced": changed_count, "unchanged": unchanged_count, "deleted": deleted_count}
 
 
 def _capture_snapshot(db):
