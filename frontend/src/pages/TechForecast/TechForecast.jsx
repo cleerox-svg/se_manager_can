@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useState } from 'react';
-import { getReps, getTechForecast } from '../../api.js';
+import { getClosedDealsSummary, getReps, getTechForecast } from '../../api.js';
 import { toast } from '../../toast.js';
+import { enterPresentMode, exitPresentMode } from '../../theme.js';
 import LookBack from './LookBack.jsx';
 import LookForwardInspect from './LookForwardInspect.jsx';
 import MacroView from './MacroView.jsx';
 import TeamPrepMessage from './TeamPrepMessage.jsx';
+import WrapUpRisk, { WinRateClosedDeals } from './WrapUpRisk.jsx';
 
 export default function TechForecast() {
   const [data, setData] = useState(null);
   const [reps, setReps] = useState([]);
+  const [winRateSummary, setWinRateSummary] = useState(null);
 
   const refresh = useCallback(() => {
     return getTechForecast().then((res) => setData(res));
@@ -21,6 +24,9 @@ export default function TechForecast() {
     });
     getReps().then((res) => {
       if (active) setReps(res);
+    });
+    getClosedDealsSummary().then((res) => {
+      if (active) setWinRateSummary(res);
     });
     return () => {
       active = false;
@@ -43,12 +49,10 @@ export default function TechForecast() {
     toast('Copied — paste into a Claude Code chat to pull the latest sheet data', 'success');
   }
 
-  function handlePresentMode() {
-    document.body.classList.add('present-mode');
-  }
-
   return (
     <>
+      <button className="present-exit-btn" onClick={exitPresentMode}>&#10005; Exit present mode</button>
+
       <div className="section-header">
         <div>
           <h2>Technical Forecast</h2>
@@ -58,7 +62,7 @@ export default function TechForecast() {
         </div>
         <div className="filter-row">
           <button className="btn" onClick={handleSyncNow}>&#128260; Sync now</button>
-          <button className="btn btn-primary" onClick={handlePresentMode}>&#128225; Present mode</button>
+          <button className="btn btn-primary" onClick={enterPresentMode}>&#128225; Present mode</button>
         </div>
       </div>
 
@@ -66,19 +70,13 @@ export default function TechForecast() {
 
       <MacroView deals={data.deals} />
 
-      <div className="card">
-        <div className="card-title">Win Rate — Closed Deals</div>
-        <div className="empty-state">Coming soon</div>
-      </div>
+      <WinRateClosedDeals winRateSummary={winRateSummary} />
 
       <LookBack wins={data.recent_wins} />
 
       <LookForwardInspect deals={data.deals} reps={reps} onAssigned={refresh} />
 
-      <div className="card">
-        <div className="card-title">Wrap-Up &amp; Risk</div>
-        <div className="empty-state">Coming soon</div>
-      </div>
+      <WrapUpRisk deals={data.deals} reps={reps} onAssigned={refresh} />
     </>
   );
 }

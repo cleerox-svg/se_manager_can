@@ -68,3 +68,7 @@ export function assignSe(sheetKey, seRepId) {
     se_rep_id: seRepId,
   });
 }
+
+export function getClosedDealsSummary() {
+  return API.get('/api/closed-deals/summary');
+}
