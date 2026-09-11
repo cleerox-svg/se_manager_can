@@ -72,3 +72,15 @@ export function assignSe(sheetKey, seRepId) {
 export function getClosedDealsSummary() {
   return API.get('/api/closed-deals/summary');
 }
+
+export function getDashboardArrTrend() {
+  return API.get('/api/dashboard/arr-trend');
+}
+
+export function getDashboardFunnel() {
+  return API.get('/api/dashboard/funnel');
+}
+
+export function getDashboardTechWinTrend() {
+  return API.get('/api/dashboard/tech-win-trend');
+}

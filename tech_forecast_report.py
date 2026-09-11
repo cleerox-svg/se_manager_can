@@ -204,6 +204,79 @@ def build_breakdown(deal_rows):
     return breakdown
 
 
+def build_arr_trend(snapshot_rows):
+    """Team-wide daily ARR time series from the full tech_forecast_snapshots
+    history (not just the single most-recent diff build_weekly_deltas uses).
+    `snapshot_rows` are {"snapshot_date", "bucket_totals_json"} dicts, one per
+    captured day, ordered ascending. Re-derives each day's bucket_totals_json
+    (forecast_status -> stage_bucket -> {amount, count}) into the same
+    won/in_flight/untagged/total classification build_key_metrics uses,
+    summed across all forecast_status keys — this stays name-free by
+    construction, since bucket_totals_json never carries SE names."""
+    trend = []
+    for row in snapshot_rows:
+        buckets = json.loads(row["bucket_totals_json"])
+        won_amount = won_count = 0.0
+        in_flight_amount = in_flight_count = 0.0
+        untagged_amount = untagged_count = 0.0
+        total_amount = total_count = 0.0
+        for stage_slots in buckets.values():
+            for bucket, slot in stage_slots.items():
+                amount, count = slot.get("amount", 0), slot.get("count", 0)
+                total_amount += amount
+                total_count += count
+                if bucket == "Technical Win":
+                    won_amount += amount
+                    won_count += count
+                elif bucket in ("Validate Solution", "Final Due Diligence"):
+                    in_flight_amount += amount
+                    in_flight_count += count
+                elif bucket == "Untagged":
+                    untagged_amount += amount
+                    untagged_count += count
+        trend.append({
+            "snapshot_date": row["snapshot_date"],
+            "total_amount": total_amount,
+            "total_count": int(total_count),
+            "tech_won_amount": won_amount,
+            "tech_won_count": int(won_count),
+            "in_flight_amount": in_flight_amount,
+            "in_flight_count": int(in_flight_count),
+            "untagged_amount": untagged_amount,
+            "untagged_count": int(untagged_count),
+        })
+    return trend
+
+
+def build_tech_win_trend(closed_win_rows, open_win_rows):
+    """Team-wide Technical Win $/count grouped by fiscal quarter, for the
+    Dashboard's quarter-over-quarter comparison. Deliberately takes plain
+    amount/date rows (no name fields at all) rather than reusing app.py's
+    /api/tech-forecast recent_wins construction, since that includes
+    se_name/rep_name — this stays name-free at the SQL level, not just by
+    dropping fields after the fact. `closed_win_rows` are already-closed
+    Technical Wins (closed_deals where tech_win=1, dated by close_date);
+    `open_win_rows` are deals currently sitting at the Technical Win stage
+    in the open pipeline, dated by technical_win_date falling back to
+    close_date, same precedence as build_top_deals."""
+    by_quarter = {}
+    for r in closed_win_rows:
+        q = fiscal_quarter(r.get("close_date"))
+        slot = by_quarter.setdefault(q, {"amount": 0.0, "count": 0})
+        slot["amount"] += r.get("amount") or 0
+        slot["count"] += 1
+    for r in open_win_rows:
+        q = fiscal_quarter(r.get("technical_win_date") or r.get("close_date"))
+        slot = by_quarter.setdefault(q, {"amount": 0.0, "count": 0})
+        slot["amount"] += r.get("amount") or 0
+        slot["count"] += 1
+
+    return [
+        {"fiscal_quarter": q, **by_quarter[q]}
+        for q in sorted(by_quarter, key=fiscal_quarter_sort_key)
+    ]
+
+
 _STAGE_QUESTIONS = {
     "1 - Assigned": "Newly assigned — curious what's driving the urgency here. What's the compelling event?",
     "2 - Discovery & Technical Qualification": "How's discovery going — what outcomes are resonating, and do we have a Champion yet?",

@@ -233,6 +233,36 @@ def tech_forecast_draft():
     return jsonify({"draft": report.build_slack_draft(preread)})
 
 
+# ── Dashboard (team-wide, SE-name-free rollups) ─────────────────────────
+@app.route("/api/dashboard/arr-trend")
+def dashboard_arr_trend():
+    with db.conn() as c:
+        rows = c.execute(
+            "SELECT snapshot_date, bucket_totals_json FROM tech_forecast_snapshots ORDER BY snapshot_date"
+        ).fetchall()
+    return jsonify(report.build_arr_trend([dict(r) for r in rows]))
+
+
+@app.route("/api/dashboard/funnel")
+def dashboard_funnel():
+    with db.conn() as c:
+        deal_rows = [dict(r) for r in c.execute("SELECT * FROM tech_forecast_deals").fetchall()]
+    return jsonify(report.build_breakdown(deal_rows))
+
+
+@app.route("/api/dashboard/tech-win-trend")
+def dashboard_tech_win_trend():
+    with db.conn() as c:
+        closed_wins = [dict(r) for r in c.execute(
+            "SELECT amount, close_date FROM closed_deals WHERE tech_win = 1"
+        ).fetchall()]
+        open_wins = [dict(r) for r in c.execute(
+            "SELECT amount, close_date, technical_win_date FROM tech_forecast_deals "
+            "WHERE presales_stage = '6 - Technical Win'"
+        ).fetchall()]
+    return jsonify(report.build_tech_win_trend(closed_wins, open_wins))
+
+
 @app.route("/api/tech-forecast/<path:sheet_key>/assign-se", methods=["POST"])
 def assign_tech_forecast_se(sheet_key):
     data = request.get_json(force=True)

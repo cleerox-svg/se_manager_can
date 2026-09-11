@@ -168,6 +168,12 @@ the open SFDC pipeline's "current quarter" filter — a different feature with
 its own (calendar-based) notion of quarter. Don't unify these without
 checking which behavior each caller actually needs.
 
+`tech_forecast_report.build_tech_win_trend()` (used by the Dashboard's
+`/api/dashboard/tech-win-trend` endpoint) also groups by `fiscal_quarter()` /
+`fiscal_quarter_sort_key()` — the new Dashboard standardizes on fiscal
+quarters to match Technical Forecast, diverging from the old Dashboard's
+calendar-quarter `current_quarter()`.
+
 `tech_forecast_report.quarter_bucket()` reuses `fiscal_quarter()` to label a
 deal's target Technical Win date (Tech Win Date, falling back to Close Date)
 as `current`/`next`/`later`/`None` relative to *today's* fiscal quarter — this

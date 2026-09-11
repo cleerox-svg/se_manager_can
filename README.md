@@ -6,9 +6,15 @@ on [NaughtRFP](../rfp-responder)'s stack and Okta dark-theme UI.
 
 ## What it does
 
-- **Dashboard** — current-quarter deals pulled from the Team Tracking Sheet
-  (Google Sheets), filterable by quarter/stage/search, with POC and
-  SE-Needed flags surfaced.
+- **Dashboard** — team-wide rollup sourced from Technical Forecast data, no
+  individual SE names shown at top level. Three stat cards (closed deals,
+  % closed won, % technical win, from `/api/closed-deals/summary`'s
+  name-free `team` object), a stacked ARR-trend area chart across the full
+  `tech_forecast_snapshots` history (Technical Win / In Flight / Untagged),
+  a stage-funnel bar chart per forecast status (reusing
+  `tech_forecast_report.build_breakdown()`), and a quarter-over-quarter
+  Technical Win ARR bar chart grouped by Okta fiscal quarter (see "Fiscal
+  quarters" in CLAUDE.md). Built with `recharts`.
 - **Team** — roster of SEs derived from the sheet's "Lead Sales Engineer"
   column, with an active/inactive toggle (used to mark departed reps —
   their historical deals stay visible, they just don't show up as a current
