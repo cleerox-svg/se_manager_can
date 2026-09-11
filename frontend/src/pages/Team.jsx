@@ -11,12 +11,14 @@ function arrGoalBar(total, target) {
   const pct = target ? Math.min(100, Math.round((total / target) * 100)) : 0;
   const met = target ? total >= target : false;
   return (
-    <div className={`goal-bar ${met ? 'goal-bar-met' : ''}`}>
-      <div className="goal-bar-track">
-        <div className="goal-bar-fill" style={{ width: `${pct}%` }} />
+    <div className="goal-bar-wrap">
+      <div className="goal-bar">
+        <div className={`goal-bar-fill${met ? ' met' : ''}`} style={{ width: `${pct}%` }} />
         {target ? <div className="goal-bar-tick" /> : null}
       </div>
-      <div className="goal-bar-label">{pct}%</div>
+      <div className="goal-bar-label">
+        <span className={`pct${met ? ' met' : ''}`}>{pct}%</span>
+      </div>
     </div>
   );
 }
