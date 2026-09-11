@@ -1,9 +1,11 @@
+import { LayoutGrid, Users, TrendingUp, Pencil, Settings, Moon, Sun } from 'lucide-react';
+
 const NAV_ITEMS = [
-  { page: 'dashboard', icon: '▦', label: 'Dashboard' },
-  { page: 'team', icon: '▤', label: 'Team' },
-  { page: 'tech-forecast', icon: '▲', label: 'Technical Forecast' },
-  { page: 'actions', icon: '✎', label: 'Actions' },
-  { page: 'settings', icon: '⚙', label: 'Settings' },
+  { page: 'dashboard', Icon: LayoutGrid, label: 'Dashboard' },
+  { page: 'team', Icon: Users, label: 'Team' },
+  { page: 'tech-forecast', Icon: TrendingUp, label: 'Technical Forecast' },
+  { page: 'actions', Icon: Pencil, label: 'Actions' },
+  { page: 'settings', Icon: Settings, label: 'Settings' },
 ];
 
 export default function Sidebar({ currentPage, onNavigate, lightMode, onToggleTheme }) {
@@ -23,14 +25,17 @@ export default function Sidebar({ currentPage, onNavigate, lightMode, onToggleTh
             className={`sidebar-btn${currentPage === item.page ? ' active' : ''}`}
             onClick={() => onNavigate(item.page)}
           >
-            <span className="sidebar-icon">{item.icon}</span>
+            <span className="sidebar-icon">
+              <item.Icon size={16} strokeWidth={2} />
+            </span>
             <span>{item.label}</span>
           </button>
         ))}
       </div>
       <div className="sidebar-footer">
         <button className="btn" id="theme-toggle-btn" onClick={onToggleTheme}>
-          {lightMode ? '☾ Dark mode' : '☀ Light mode'}
+          {lightMode ? <Moon size={14} strokeWidth={2} /> : <Sun size={14} strokeWidth={2} />}
+          {lightMode ? ' Dark mode' : ' Light mode'}
         </button>
       </div>
     </nav>
