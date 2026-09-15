@@ -1,6 +1,7 @@
 import sqlite3
 import threading
 from contextlib import contextmanager
+from datetime import datetime, timezone
 
 _PRAGMAS = """
 PRAGMA journal_mode=WAL;
@@ -9,6 +10,21 @@ PRAGMA cache_size=-32000;
 PRAGMA synchronous=NORMAL;
 PRAGMA temp_store=MEMORY;
 """
+
+# Bumped when a one-time cleanup is added to `_one_time_cleanups`. Everything
+# else in `_migrate` is idempotent CREATE/ALTER probing and stays unversioned.
+_SCHEMA_VERSION = 1
+
+
+def utc_now_iso() -> str:
+    """Timestamp for columns whose schema default is `datetime('now')` (UTC).
+
+    Callers writing those columns explicitly must not use
+    `datetime.now().isoformat()` — that's local time, so a written value and a
+    defaulted `updated_at` in the same row end up disagreeing by the UTC offset
+    (e.g. `settings.value` vs `settings.updated_at`).
+    """
+    return datetime.now(timezone.utc).isoformat()
 
 
 class Database:
@@ -58,6 +74,11 @@ class Database:
             c.execute("ALTER TABLE deals ADD COLUMN backup_note TEXT")
         if "backup_assigned_at" not in cols:
             c.execute("ALTER TABLE deals ADD COLUMN backup_assigned_at TEXT")
+        # `closed_deals` and `tech_forecast_deals` already carry the SFDC record
+        # id; `deals` didn't, so the sync layer could only key rows by the
+        # composite sheet_key, which churns whenever a sheet cell is edited.
+        if "opportunity_id" not in cols:
+            c.execute("ALTER TABLE deals ADD COLUMN opportunity_id TEXT")
 
         cols = {row["name"] for row in c.execute("PRAGMA table_info(tech_forecast_deals)")}
         if "assigned_se_rep_id" not in cols:
@@ -99,7 +120,29 @@ class Database:
         if "row_fingerprint" not in cols:
             c.execute("ALTER TABLE closed_deals ADD COLUMN row_fingerprint TEXT")
 
-        c.execute("DROP TABLE IF EXISTS clari_ae_snapshots")
+        self._one_time_cleanups(c)
+
+    def _one_time_cleanups(self, c: sqlite3.Connection):
+        """Destructive migrations that must not re-run on every process start.
+
+        The CREATE/ALTER probing above is cheap and safe to repeat; a DROP is
+        neither, so it's gated on a stored version instead.
+        """
+        row = c.execute("SELECT value FROM settings WHERE key = 'schema_version'").fetchone()
+        version = int(row["value"]) if row and str(row["value"]).isdigit() else 0
+        if version >= _SCHEMA_VERSION:
+            return
+
+        if version < 1:
+            # Abandoned Clari import experiment — the table was never read back.
+            c.execute("DROP TABLE IF EXISTS clari_ae_snapshots")
+
+        c.execute(
+            "INSERT INTO settings (key, value, updated_at) "
+            "VALUES ('schema_version', ?, datetime('now')) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')",
+            (str(_SCHEMA_VERSION),),
+        )
 
     def init(self):
         with self.conn() as c:
@@ -145,6 +188,8 @@ class Database:
                 CREATE TABLE IF NOT EXISTS slack_notes (
                     id           INTEGER PRIMARY KEY AUTOINCREMENT,
                     se_rep_id    INTEGER REFERENCES se_reps(id) ON DELETE CASCADE,
+                    -- deal_id is unpopulated: nothing writes or reads it. Kept
+                    -- rather than dropped so no existing DB loses a column.
                     deal_id      INTEGER REFERENCES deals(id) ON DELETE SET NULL,
                     message_ts   TEXT,
                     channel_id   TEXT,
@@ -196,6 +241,13 @@ class Database:
                     notes_prev_sync          TEXT,
                     notes_stale              INTEGER DEFAULT 0,
                     row_fingerprint          TEXT,
+                    -- No ON DELETE action, so this FK is RESTRICT while every
+                    -- other rep reference is SET NULL/CASCADE: deleting an
+                    -- se_reps row fails while any deal here points at it.
+                    -- Fixing it needs a full table rebuild (SQLite can't alter
+                    -- an FK in place), which isn't worth it for a column only
+                    -- set by hand from the Tech Forecast page. Any future
+                    -- delete-rep path must NULL this column first.
                     assigned_se_rep_id       INTEGER REFERENCES se_reps(id),
                     confidence               TEXT,
                     billing_state_province   TEXT,
@@ -234,8 +286,60 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_deals_quarter ON deals(quarter);
                 CREATE INDEX IF NOT EXISTS idx_slack_notes_se_rep ON slack_notes(se_rep_id);
                 CREATE INDEX IF NOT EXISTS idx_closed_deals_se_rep ON closed_deals(se_rep_id);
+
+                -- Covering index for step 3 of the SE-attribution precedence
+                -- (attribution.ATTRIBUTED_SE_ID_SQL): the id/se_rep_id columns
+                -- let the ORDER BY d.id LIMIT 1 resolve without touching the
+                -- table. Turns a per-row SCAN of deals into a SEARCH.
+                CREATE INDEX IF NOT EXISTS idx_deals_opp_name
+                    ON deals(opportunity_name, id, se_rep_id);
+
+                -- Step 2 of the same precedence matches on lower(name), which
+                -- the UNIQUE index on se_reps.name can't serve; without this
+                -- expression index every tech_forecast row re-scans se_reps.
+                CREATE INDEX IF NOT EXISTS idx_se_reps_name_lower
+                    ON se_reps(lower(name));
+
+                -- Matches /api/reps/<id>/slack's ORDER BY posted_at DESC, so
+                -- the 200-row page comes off the index with no temp B-tree.
+                CREATE INDEX IF NOT EXISTS idx_slack_notes_rep_posted
+                    ON slack_notes(se_rep_id, posted_at DESC);
+
+                -- Partial: technical wins are a small slice of closed_deals,
+                -- so the index is a fraction of the table the tech-win queries
+                -- would otherwise scan in full.
+                CREATE INDEX IF NOT EXISTS idx_closed_deals_tech_win
+                    ON closed_deals(tech_win) WHERE tech_win = 1;
+
+                CREATE INDEX IF NOT EXISTS idx_tech_forecast_presales_stage
+                    ON tech_forecast_deals(presales_stage);
             """)
             self._migrate(c)
+
+    def prune_snapshots(self, keep_days: int = 400, keep_min: int = 8) -> int:
+        """Drop tech_forecast snapshots older than `keep_days`.
+
+        `deal_states_json` is a full per-deal blob written daily (~30MB/yr) but
+        `build_weekly_deltas` only ever reads the single most recent prior row,
+        so anything past a year of history is dead weight. `keep_min` guards the
+        recent window regardless of age, so a DB that goes stale for a while
+        still has a baseline to diff against.
+
+        Not called from `init()` — pruning on every process start would make an
+        app restart destructive. Invoke it from `tech_forecast_sync` right after
+        the daily snapshot is captured, where a write is already expected.
+        """
+        with self.conn() as c:
+            cur = c.execute(
+                "DELETE FROM tech_forecast_snapshots "
+                "WHERE snapshot_date < date('now', ?) "
+                "AND id NOT IN ("
+                "    SELECT id FROM tech_forecast_snapshots "
+                "    ORDER BY snapshot_date DESC LIMIT ?"
+                ")",
+                (f"-{int(keep_days)} days", int(keep_min)),
+            )
+            return cur.rowcount
 
     def get_setting(self, key: str, default=None):
         with self.conn() as c:

@@ -8,6 +8,9 @@ __pycache__/
 venv/
 .venv/
 _mcp_payload_*.json
+# Ad-hoc before/after debugging dumps — these carry real opportunity names,
+# amounts and verbatim notes, so they must never be tracked.
+*_dump.json
 server.log
 app.log
 *.log
