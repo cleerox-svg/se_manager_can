@@ -6,16 +6,22 @@ the `search:read`, `users:read`, `channels:read` and `groups:read` user
 scopes (see SETUP.md).
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
+
+from db import utc_now_iso
 
 _LOOKBACK_DAYS_DEFAULT = 90
 
 
 def _ts_to_iso(ts: str) -> str:
-    return datetime.fromtimestamp(float(ts)).isoformat()
+    """Slack's `ts` is a UTC epoch. `fromtimestamp` without a tz renders it in
+    the host's local time, so the same message imported from two machines gets
+    two different `posted_at` values — and every one of them disagrees with the
+    UTC `fetched_at` sitting next to it."""
+    return datetime.fromtimestamp(float(ts), tz=timezone.utc).isoformat()
 
 
 def _search_for_rep(client: WebClient, slack_user_id: str, after: str | None) -> list[dict]:
@@ -42,12 +48,22 @@ def _search_for_rep(client: WebClient, slack_user_id: str, after: str | None) ->
     return results
 
 
-def _load_matches(db, se_rep_id: int, matches: list[dict]) -> int:
+def _load_matches(db, se_rep_id: int, matches: list[dict]) -> dict:
     """Upsert already-fetched search-result-shaped messages into `slack_notes`.
 
     Accepts either the raw `search.messages` shape (nested `channel: {id, name}`)
     or a flat shape (`channel_id`/`channel_name`) — the latter is what the
-    MCP-assisted path passes in, since it's simpler to build by hand."""
+    MCP-assisted path passes in, since it's simpler to build by hand.
+
+    Returns what was actually WRITTEN, not how many matches were handed to us:
+    these upserts are idempotent, so re-running a sync used to report the same
+    "synced" count as the first run and read as if a whole lookback window of
+    new activity had just arrived."""
+    fetched_at = utc_now_iso()
+    new_count = 0
+    updated_count = 0
+    unchanged_count = 0
+
     with db.conn() as c:
         for m in matches:
             channel = m.get("channel") or {}
@@ -55,17 +71,37 @@ def _load_matches(db, se_rep_id: int, matches: list[dict]) -> int:
             channel_name = channel.get("name") or m.get("channel_name")
             ts = m.get("ts")
             posted_at = m.get("posted_at") or (_ts_to_iso(ts) if ts else None)
+
+            prior = c.execute(
+                "SELECT text, permalink FROM slack_notes "
+                "WHERE se_rep_id = ? AND message_ts = ? AND channel_id = ?",
+                (se_rep_id, ts, channel_id),
+            ).fetchone()
+            if prior is None:
+                new_count += 1
+            elif prior["text"] == m.get("text") and prior["permalink"] == m.get("permalink"):
+                unchanged_count += 1
+            else:
+                updated_count += 1
+
             c.execute("""
                 INSERT INTO slack_notes (
                     se_rep_id, message_ts, channel_id, channel_name, text, permalink, posted_at, fetched_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(se_rep_id, message_ts, channel_id) DO UPDATE SET
-                    text = excluded.text, permalink = excluded.permalink, fetched_at = datetime('now')
+                    text = excluded.text, permalink = excluded.permalink,
+                    fetched_at = excluded.fetched_at
             """, (
                 se_rep_id, ts, channel_id, channel_name,
-                m.get("text"), m.get("permalink"), posted_at,
+                m.get("text"), m.get("permalink"), posted_at, fetched_at,
             ))
-    return len(matches)
+
+    return {
+        "synced": new_count + updated_count,
+        "new": new_count,
+        "updated": updated_count,
+        "unchanged": unchanged_count,
+    }
 
 
 def sync_slack_notes(db, slack_user_token: str, lookback_days: int = _LOOKBACK_DAYS_DEFAULT) -> dict:
@@ -80,18 +116,25 @@ def sync_slack_notes(db, slack_user_token: str, lookback_days: int = _LOOKBACK_D
     synced = {}
     for rep in reps:
         last_synced = db.get_setting(f"slack_last_synced_{rep['id']}")
-        after = last_synced or (datetime.now() - timedelta(days=lookback_days)).date().isoformat()
+        after = last_synced or (
+            datetime.now(timezone.utc) - timedelta(days=lookback_days)
+        ).date().isoformat()
 
         matches = _search_for_rep(client, rep["slack_user_id"], after)
-        count = _load_matches(db, rep["id"], matches)
+        counts = _load_matches(db, rep["id"], matches)
 
-        db.set_setting(f"slack_last_synced_{rep['id']}", datetime.now().date().isoformat())
-        synced[rep["name"]] = count
+        # UTC, to match both the `after:` window we just searched and the
+        # `fetched_at` stamped on the rows themselves.
+        db.set_setting(
+            f"slack_last_synced_{rep['id']}",
+            datetime.now(timezone.utc).date().isoformat(),
+        )
+        synced[rep["name"]] = counts
 
     return synced
 
 
-def sync_slack_notes_from_matches(db, se_rep_id: int, matches: list[dict]) -> int:
+def sync_slack_notes_from_matches(db, se_rep_id: int, matches: list[dict]) -> dict:
     """MCP-assisted path: caller already fetched matches (e.g. via the Slack
     MCP search tool) — just load them. Safe to re-run; upserts are idempotent."""
     return _load_matches(db, se_rep_id, matches)

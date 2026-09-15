@@ -10,6 +10,8 @@ import warnings
 import anthropic
 import httpx
 
+from constants import STAGE_CLOSED_WON
+
 _MODEL = "claude-sonnet-4-6"
 
 _SYSTEM_PROMPT = """You are helping an Okta Sales Engineering manager prep for a FY26 H2 \
@@ -59,6 +61,12 @@ def _make_client(api_key: str, base_url: str | None) -> anthropic.Anthropic:
     return anthropic.Anthropic(**kwargs)
 
 
+def _money(amount) -> str:
+    """`closed_deals.amount` / `deals.amount` are nullable — a single NULL row
+    used to blow up the whole generate endpoint on `f"{None:,.2f}"`."""
+    return f"${amount or 0:,.2f}"
+
+
 def _build_context(db, se_rep_id: int) -> str:
     with db.conn() as c:
         rep = c.execute("SELECT * FROM se_reps WHERE id = ?", (se_rep_id,)).fetchone()
@@ -75,15 +83,43 @@ def _build_context(db, se_rep_id: int) -> str:
 
     lines = [f"SE: {rep['name']}", ""]
 
-    tech_wins = sum(1 for d in closed if d["tech_win"])
-    total_amount = sum(d["amount"] or 0 for d in closed)
+    # `closed_deals` holds BOTH Won and Lost rows (see CLAUDE.md / constants.py).
+    # Splitting into two labelled sections rather than filtering Lost out
+    # entirely: a technical win on a deal that later closed Lost is still real
+    # SE impact and useful review evidence, but its amount must never land in
+    # the revenue line the manager reads aloud. The section headings carry the
+    # distinction explicitly so the model can't conflate the two either.
+    won = [d for d in closed if d["sales_stage"] == STAGE_CLOSED_WON]
+    lost = [d for d in closed if d["sales_stage"] != STAGE_CLOSED_WON]
+
+    won_tech_wins = sum(1 for d in won if d["tech_win"])
+    won_amount = sum(d["amount"] or 0 for d in won)
     lines.append(
-        f"Closed-won deals this period ({len(closed)}, {tech_wins} technical wins, "
-        f"${total_amount:,.2f} total):"
+        f"Closed-WON deals this period ({len(won)}, {won_tech_wins} technical wins, "
+        f"{_money(won_amount)} total revenue):"
     )
-    for d in closed:
+    for d in won:
         win_flag = " [TECHNICAL WIN]" if d["tech_win"] else ""
-        lines.append(f"- {d['opportunity_name']} | closed={d['close_date']} | amount=${d['amount']:,.2f}{win_flag}")
+        lines.append(
+            f"- {d['opportunity_name']} | closed={d['close_date']} | "
+            f"amount={_money(d['amount'])}{win_flag}"
+        )
+
+    if lost:
+        lost_tech_wins = sum(1 for d in lost if d["tech_win"])
+        lines.append("")
+        lines.append(
+            f"Closed-LOST deals this period ({len(lost)}, {lost_tech_wins} of them still "
+            f"technical wins). These are NOT revenue — do not count their amounts as won "
+            f"business. A technical win here means the SE won the technical evaluation "
+            f"even though the deal was commercially lost:"
+        )
+        for d in lost:
+            win_flag = " [TECHNICAL WIN]" if d["tech_win"] else ""
+            lines.append(
+                f"- {d['opportunity_name']} | closed={d['close_date']} | "
+                f"stage={d['sales_stage']} | amount={_money(d['amount'])}{win_flag}"
+            )
 
     lines.append("")
     lines.append(f"Open deals ({len(deals)}):")
@@ -96,7 +132,7 @@ def _build_context(db, se_rep_id: int) -> str:
         flag_str = f" [{', '.join(flags)}]" if flags else ""
         lines.append(
             f"- {d['opportunity_name']} | stage={d['stage']} | close={d['close_date']} | "
-            f"amount={d['amount']}{flag_str} | mgr notes: {d['se_manager_notes'] or '-'} | "
+            f"amount={_money(d['amount'])}{flag_str} | mgr notes: {d['se_manager_notes'] or '-'} | "
             f"presales notes: {d['presales_notes'] or '-'}"
         )
 

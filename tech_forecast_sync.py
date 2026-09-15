@@ -37,7 +37,19 @@ Pre-Sales Next Steps is freeform, hand-typed text with no reliable
 structured date. To flag "no update this week" we diff each row's
 Pre-Sales Next Steps against the value it held as of the *previous* sync
 (`notes_prev_sync`) rather than trying to parse dates out of the notes
-text.
+text. Note that staleness is evaluated on BOTH sides of the fingerprint
+gate in `load_rows`: an untouched row matches its fingerprint, and that is
+precisely the row the flag exists to catch, so skipping it there meant
+`notes_stale` could only ever fire when something *else* about the row had
+changed.
+
+Rows are keyed by Salesforce opportunity ID when the sheet carries one,
+falling back to opportunity name + *parsed* close date (see
+`sheet_parse.build_sheet_key`). The old raw-cell composite re-keyed a row
+whenever a close date slipped — or was merely reformatted — which deleted
+and reinserted it, taking `assigned_se_rep_id`/`backup_se_rep_id`/
+`backup_note` with it. Where a re-key still happens, those overrides are
+carried onto the replacement row before the old one is deleted.
 
 The sheet's query isn't scoped to just our team — it also carries deals
 whose account-owner manager is Greg Rainbird, a different sales org. We no
@@ -49,12 +61,13 @@ found mixed into this sheet's query should be added to the same mapping
 rather than special-cased.
 """
 
-import hashlib
 import json
-import re
-from datetime import date, datetime
+from datetime import date
 
+import sheet_parse
 import tech_forecast_report as report
+from constants import PRESALES_TECH_WIN
+from db import utc_now_iso
 
 _HEADER_MAP = {
     "Lead Sales Engineer": "lead_se_name",
@@ -82,7 +95,17 @@ _HEADER_MAP = {
 
 _GROUP_LEVELS = ("lead_se_name", "forecast_status")
 
-_SKIP_MARKERS = ("subtotal", "total")
+# Headers we cannot do without: losing any one of them either empties the sync
+# or silently re-keys every row. A header that isn't here may go missing
+# without failing the sync (its column is simply dropped).
+_REQUIRED_HEADERS = (
+    "Lead Sales Engineer",
+    "Deal Forecast Status",
+    "Opportunity Name",
+    "Close Date",
+    "Amount (converted)",
+    "Presales Stage",
+)
 
 # Greg Rainbird's org is a different sales team — the sheet's underlying
 # query pulls in deals across account-owner managers beyond ours, and his
@@ -94,59 +117,20 @@ _SKIP_MARKERS = ("subtotal", "total")
 # Add future cross-org managers to this same mapping.
 _OTHER_ORG_MANAGER_TAGS = {"greg rainbird": ("Auth0", "Enterprise/Strategic")}
 
-_GROUP_SUFFIX_RE = re.compile(r"\s*\(\d+\)\s*$")
 
+def _org_tag(cells: dict) -> tuple:
+    """(product, segment) for a cross-org row, or (None, None).
 
-def _strip_group_suffix(raw: str) -> str | None:
-    """Strip the trailing row-count, e.g. 'Nic Da Silva (11)' -> 'Nic Da
-    Silva'. Returns one of three distinct signals, which the caller must
-    NOT treat as interchangeable:
-
-    - a real name/label, when one was present;
-    - '' for the sheet's bare '-' placeholder ("no Lead SE assigned yet") —
-      a genuine, intentional group boundary that should reset the
-      forward-fill for this level (and cascade down for lead_se_name);
-    - None for a bare 'Subtotal'/'Total' marker cell. This is a row-shape
-      artifact, not a real group boundary — the same merged/bled-through
-      header-cell text documented in sheets_sync.py's per-lead subtotal
-      row, where the marker can land one column over from its own level.
-      Collapsing this to '' (as '-' does) would make the caller reset
-      `fill`/`pending` on pure noise, silently and permanently orphaning
-      any deal rows still buffered waiting for a late-arriving group name
-      (see `_normalize_values`) — the exact bug behind Nova/MacEwan/etc.
-      showing up with a blank lead_se_name despite a real Lead SE in the
-      sheet. Callers must treat None like a blank cell: inherit the
-      current fill, keep buffering pending rows, never reset.
+    Kept as its own helper because these two fields are re-derived on EVERY
+    sync — deliberately outside `_FINGERPRINT_FIELDS` (a tag change is not a
+    sheet change) — so both the insert path and the unchanged-row path below
+    have to apply it. When only the insert path did, adding a manager to
+    `_OTHER_ORG_MANAGER_TAGS` had no effect on rows already stored: they
+    matched their fingerprint, skipped the upsert, and stayed untagged until
+    something unrelated about them happened to change.
     """
-    stripped = _GROUP_SUFFIX_RE.sub("", raw).strip()
-    if stripped.lower() in _SKIP_MARKERS:
-        return None
-    if stripped == "-":
-        return ""
-    return stripped
-
-
-def _parse_amount(raw: str) -> float | None:
-    if not raw:
-        return None
-    cleaned = re.sub(r"[^0-9.\-]", "", raw)
-    if not cleaned or cleaned in ("-", "."):
-        return None
-    try:
-        return float(cleaned)
-    except ValueError:
-        return None
-
-
-def _parse_date(raw: str) -> str | None:
-    if not raw:
-        return None
-    for fmt in ("%m/%d/%Y", "%Y-%m-%d", "%m/%d/%y"):
-        try:
-            return datetime.strptime(raw.strip(), fmt).date().isoformat()
-        except ValueError:
-            continue
-    return None
+    tag = _OTHER_ORG_MANAGER_TAGS.get(str(cells.get("opportunity_owner_manager") or "").strip().lower())
+    return tag if tag else (None, None)
 
 
 def _normalize_values(values: list[list[str]]) -> list[dict]:
@@ -155,8 +139,9 @@ def _normalize_values(values: list[list[str]]) -> list[dict]:
     if not values:
         return []
 
-    header = values[0]
-    col_keys = [_HEADER_MAP.get(h.strip()) for h in header]
+    col_keys = sheet_parse.map_header(
+        values[0], _HEADER_MAP, _REQUIRED_HEADERS, label="tech forecast sync"
+    )
 
     rows: list[dict] = []
     fill = {level: "" for level in _GROUP_LEVELS}
@@ -178,55 +163,45 @@ def _normalize_values(values: list[list[str]]) -> list[dict]:
                 cells[key] = (val or "").strip()
 
         for level in _GROUP_LEVELS:
-            raw_val = cells.get(level, "")
-            if raw_val:
-                stripped = _strip_group_suffix(raw_val)
-                if stripped is None:
-                    # Bare "Subtotal"/"Total" marker artifact — not a real
-                    # group boundary, just row-shape noise (the marker can
-                    # bleed into a column that isn't even its own level).
-                    # Treat exactly like a blank cell: keep whatever fill
-                    # is active and keep buffering, so a still-unresolved
-                    # pending group isn't discarded by this row.
-                    cells[level] = fill[level]
-                    if not fill[level] and cells.get("opportunity_name"):
-                        pending[level].append(cells)
-                elif stripped:
-                    # A real name rode along on this cell — either a normal
-                    # leading label, or a late name arriving on this group's
-                    # own trailing Subtotal row. Either way, resolve whatever
-                    # deals are still waiting on a name at this level.
-                    for pending_row in pending[level]:
-                        pending_row[level] = stripped
-                    pending[level] = []
-                    fill[level] = stripped
-                    cells[level] = stripped
-                    if level == "lead_se_name":
-                        fill["forecast_status"] = ""
-                        pending["forecast_status"] = []
-                else:
-                    # Genuine "-" boundary (no Lead SE assigned yet) — this
-                    # level's group is really done; don't let it bleed into
-                    # whatever group comes next.
-                    fill[level] = ""
-                    pending[level] = []
-                    cells[level] = ""
-                    if level == "lead_se_name":
-                        fill["forecast_status"] = ""
-                        pending["forecast_status"] = []
-            else:
+            label = sheet_parse.strip_group_label(cells.get(level, ""))
+            if label is None:
+                # Blank cell, or a bare "Subtotal"/"Total" marker artifact —
+                # not a real group boundary, just row-shape noise (the marker
+                # can bleed into a column that isn't even its own level).
+                # Either way: keep whatever fill is active and keep buffering,
+                # so a still-unresolved pending group isn't discarded here.
                 cells[level] = fill[level]
                 if not fill[level] and cells.get("opportunity_name"):
                     pending[level].append(cells)
+            elif label:
+                # A real name rode along on this cell — either a normal
+                # leading label, or a late name arriving on this group's
+                # own trailing Subtotal row. Either way, resolve whatever
+                # deals are still waiting on a name at this level.
+                for pending_row in pending[level]:
+                    pending_row[level] = label
+                pending[level] = []
+                fill[level] = label
+                cells[level] = label
+                if level == "lead_se_name":
+                    fill["forecast_status"] = ""
+                    pending["forecast_status"] = []
+            else:
+                # Genuine "-" boundary (no Lead SE assigned yet) — this
+                # level's group is really done; don't let it bleed into
+                # whatever group comes next.
+                fill[level] = ""
+                pending[level] = []
+                cells[level] = ""
+                if level == "lead_se_name":
+                    fill["forecast_status"] = ""
+                    pending["forecast_status"] = []
 
         if not cells.get("opportunity_name"):
             continue
 
-        tag = _OTHER_ORG_MANAGER_TAGS.get(cells.get("opportunity_owner_manager", "").strip().lower())
-        if tag:
-            cells["product"], cells["segment"] = tag
-
-        cells["is_tech_win"] = 1 if cells.get("presales_stage") == "6 - Technical Win" else 0
+        cells["product"], cells["segment"] = _org_tag(cells)
+        cells["is_tech_win"] = 1 if cells.get("presales_stage") == PRESALES_TECH_WIN else 0
         rows.append(cells)
 
     return rows
@@ -243,47 +218,90 @@ _FINGERPRINT_FIELDS = (
 
 
 def _row_fingerprint(row: dict, close_date, technical_win_date, amount) -> str:
-    parts = [row.get(f) or "" for f in _FINGERPRINT_FIELDS]
-    parts += [close_date or "", technical_win_date or "", "" if amount is None else str(amount)]
-    return hashlib.md5("|".join(parts).encode()).hexdigest()
+    return sheet_parse.row_fingerprint(
+        row, _FINGERPRINT_FIELDS, (close_date, technical_win_date, amount)
+    )
 
 
-def load_rows(db, rows: list[dict]) -> dict:
+# Columns a human sets in the app, never the sheet. A sync must never clobber
+# these (CLAUDE.md), which includes losing them to a delete/reinsert when a
+# row's key changes — see `sheet_parse.build_sheet_key` / `match_rekeyed_rows`.
+_MANUAL_OVERRIDE_COLUMNS = (
+    "assigned_se_rep_id", "backup_se_rep_id", "backup_note", "backup_assigned_at",
+)
+
+
+def load_rows(db, rows: list[dict], allow_shrink: bool = False) -> dict:
     """Upsert already-normalized rows into the `tech_forecast_deals` table.
-    Skips rows whose content hash matches the stored fingerprint (unchanged rows).
-    Returns counts of synced (changed+new), unchanged, and deleted rows."""
+    Skips rewriting rows whose content hash matches the stored fingerprint,
+    but still re-evaluates their staleness and org tags (both are derived from
+    a comparison, not from the row's own content, so the fingerprint gate
+    can't stand in for them). Returns counts of synced (changed+new),
+    unchanged, and deleted rows."""
     existing_rows: dict[str, dict] = {}
     with db.conn() as c:
         for r in c.execute(
-            "SELECT sheet_key, row_fingerprint, pre_sales_next_steps FROM tech_forecast_deals"
+            "SELECT sheet_key, row_fingerprint, pre_sales_next_steps, opportunity_id, "
+            "opportunity_name, notes_stale, product, segment, "
+            "assigned_se_rep_id, backup_se_rep_id, backup_note, backup_assigned_at "
+            "FROM tech_forecast_deals"
         ):
-            existing_rows[r["sheet_key"]] = {
-                "fingerprint": r["row_fingerprint"],
-                "pre_sales_next_steps": r["pre_sales_next_steps"],
-            }
+            existing_rows[r["sheet_key"]] = dict(r)
 
-    seen_keys: list[str] = []
+    # A truncated fetch looks exactly like a shrunken sheet; refuse before we
+    # write anything rather than after we've deleted the missing rows.
+    sheet_parse.guard_row_shrink(
+        "tech forecast sync", len(existing_rows), len(rows), allow_shrink
+    )
+
+    payload_rows: dict[str, dict] = {}
     changed_count = 0
     unchanged_count = 0
+    unparsed_amounts = 0
+    synced_at = utc_now_iso()
 
     with db.conn() as c:
         for row in rows:
-            close_date = _parse_date(row.get("close_date", ""))
-            technical_win_date = _parse_date(row.get("technical_win_date", ""))
-            amount = _parse_amount(row.get("amount", ""))
-            sheet_key = "|".join([row.get("opportunity_name", ""), row.get("close_date", "")])
-            seen_keys.append(sheet_key)
+            close_date = sheet_parse.parse_date(row.get("close_date", ""))
+            technical_win_date = sheet_parse.parse_date(row.get("technical_win_date", ""))
+            amount = sheet_parse.parse_amount(row.get("amount", ""))
+            if sheet_parse.amount_unparsed(row.get("amount", ""), amount):
+                unparsed_amounts += 1
+            # Parsed date, not the raw cell: a cell merely reformatted from
+            # 5/4/2026 to 05/04/2026 must not look like a different deal.
+            sheet_key = sheet_parse.build_sheet_key(
+                row.get("opportunity_id"), row.get("opportunity_name", ""), close_date or ""
+            )
+            payload_rows[sheet_key] = {
+                "opportunity_id": row.get("opportunity_id"),
+                "opportunity_name": row.get("opportunity_name"),
+            }
 
             new_fingerprint = _row_fingerprint(row, close_date, technical_win_date, amount)
             existing = existing_rows.get(sheet_key)
 
-            if existing is not None and existing["fingerprint"] == new_fingerprint:
-                unchanged_count += 1
-                continue
-
             new_next_steps = row.get("pre_sales_next_steps", "")
             prior_next_steps = existing["pre_sales_next_steps"] if existing else None
+            # Stale = the Pre-Sales Next Steps text is byte-identical to what
+            # the previous sync stored. That is precisely the case where
+            # nothing else about the row changed either, so it must be
+            # evaluated on BOTH sides of the fingerprint gate — computing it
+            # only on the changed path meant the "nobody has touched this deal
+            # in three weeks" row, the one the flag exists for, could never be
+            # flagged at all.
             notes_stale = 1 if existing is not None and prior_next_steps == new_next_steps else 0
+            product, segment = row.get("product"), row.get("segment")
+
+            if existing is not None and existing["row_fingerprint"] == new_fingerprint:
+                unchanged_count += 1
+                c.execute("""
+                    UPDATE tech_forecast_deals SET
+                        notes_stale = ?, notes_prev_sync = ?, product = ?, segment = ?,
+                        last_synced_at = ?
+                    WHERE sheet_key = ?
+                """, (notes_stale, prior_next_steps, product, segment, synced_at, sheet_key))
+                continue
+
             changed_count += 1
 
             c.execute("""
@@ -294,9 +312,13 @@ def load_rows(db, rows: list[dict]) -> dict:
                     se_manager_notes, pre_sales_notes, pre_sales_next_steps, notes_prev_sync,
                     notes_stale, confidence, billing_state_province, product, segment,
                     row_fingerprint, last_synced_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(sheet_key) DO UPDATE SET
-                    lead_se_name = excluded.lead_se_name, opportunity_id = excluded.opportunity_id,
+                    lead_se_name = excluded.lead_se_name,
+                    -- Updatable now that the key can be the opportunity ID:
+                    -- a renamed deal keeps its row instead of becoming one.
+                    opportunity_name = excluded.opportunity_name,
+                    opportunity_id = excluded.opportunity_id,
                     amount = excluded.amount,
                     presales_stage = excluded.presales_stage,
                     forecast_status = excluded.forecast_status, sales_stage = excluded.sales_stage,
@@ -316,7 +338,7 @@ def load_rows(db, rows: list[dict]) -> dict:
                     product = excluded.product,
                     segment = excluded.segment,
                     row_fingerprint = excluded.row_fingerprint,
-                    last_synced_at = datetime('now')
+                    last_synced_at = excluded.last_synced_at
             """, (
                 sheet_key, row.get("lead_se_name"), row.get("opportunity_name"), row.get("opportunity_id"),
                 amount,
@@ -326,21 +348,48 @@ def load_rows(db, rows: list[dict]) -> dict:
                 row.get("opportunity_owner"), row.get("opportunity_owner_manager"),
                 row.get("se_manager_notes"), row.get("pre_sales_notes", ""), new_next_steps,
                 prior_next_steps, notes_stale, row.get("confidence"), row.get("billing_state_province"),
-                row.get("product"), row.get("segment"),
-                new_fingerprint,
+                product, segment,
+                new_fingerprint, synced_at,
             ))
 
         deleted_count = 0
-        if seen_keys:
-            to_delete = set(existing_rows) - set(seen_keys)
-            deleted_count = len(to_delete)
-            placeholders = ",".join("?" * len(seen_keys))
-            c.execute(f"DELETE FROM tech_forecast_deals WHERE sheet_key NOT IN ({placeholders})", seen_keys)
+        carried_count = 0
+        if payload_rows:
+            departing = {k: v for k, v in existing_rows.items() if k not in payload_rows}
+            arriving = {k: v for k, v in payload_rows.items() if k not in existing_rows}
+            # Second line of defence behind the opportunity-ID-first key: when
+            # a row's key still changes (no ID in the sheet, or a renamed
+            # deal), move the manual overrides onto its replacement before the
+            # old row is deleted, so a slipped close date can't quietly wipe an
+            # SE assignment.
+            for old_key, new_key in sheet_parse.match_rekeyed_rows(departing, arriving).items():
+                carried = [departing[old_key][col] for col in _MANUAL_OVERRIDE_COLUMNS]
+                if not any(v is not None for v in carried):
+                    continue
+                # COALESCE so a value already set on the new row wins — we are
+                # restoring what the re-key dropped, never overwriting.
+                c.execute(f"""
+                    UPDATE tech_forecast_deals SET
+                        {", ".join(f"{col} = COALESCE({col}, ?)" for col in _MANUAL_OVERRIDE_COLUMNS)}
+                    WHERE sheet_key = ?
+                """, (*carried, new_key))
+                carried_count += 1
 
-    db.set_setting("tech_forecast_last_synced_at", datetime.now().isoformat())
+            deleted_count = sheet_parse.delete_keys(c, "tech_forecast_deals", departing)
+
+        # Same transaction as the rows it describes — a failure after the data
+        # write must not leave the timestamp disagreeing with the data.
+        sheet_parse.write_setting(c, "tech_forecast_last_synced_at", synced_at, synced_at)
+
     if changed_count or deleted_count:
         _capture_snapshot(db)
-    return {"synced": changed_count, "unchanged": unchanged_count, "deleted": deleted_count}
+    return {
+        "synced": changed_count,
+        "unchanged": unchanged_count,
+        "deleted": deleted_count,
+        "overrides_carried": carried_count,
+        "unparsed_amounts": unparsed_amounts,
+    }
 
 
 def _capture_snapshot(db):
@@ -351,8 +400,14 @@ def _capture_snapshot(db):
     with db.conn() as c:
         rows = [
             dict(r) for r in c.execute(
-                "SELECT sheet_key, opportunity_name, amount, presales_stage, forecast_status "
-                "FROM tech_forecast_deals"
+                # `confidence` and `opportunity_id` are not decoration here:
+                # aggregate_buckets keys on confidence (without it every
+                # snapshot recorded a single degenerate "Untagged" bucket
+                # forever), and build_weekly_deltas reads opportunity_id off
+                # the prior snapshot to build the Salesforce link for a
+                # dropped deal (without it, every dropped deal linked to null).
+                "SELECT sheet_key, opportunity_name, opportunity_id, amount, presales_stage, "
+                "forecast_status, confidence FROM tech_forecast_deals"
             ).fetchall()
         ]
     deal_states = {r["sheet_key"]: r for r in rows}
@@ -367,7 +422,8 @@ def _capture_snapshot(db):
         """, (date.today().isoformat(), json.dumps(bucket_totals), json.dumps(deal_states)))
 
 
-def sync_tech_forecast_from_values(db, values: list[list[str]]) -> dict:
+def sync_tech_forecast_from_values(db, values: list[list[str]], allow_shrink: bool = False) -> dict:
     """MCP-assisted path: caller already fetched Sheet4's raw grid — normalize
-    and load it, no service account needed."""
-    return load_rows(db, _normalize_values(values))
+    and load it, no service account needed. `allow_shrink` waives the
+    truncated-fetch guard for a sheet that really did shrink."""
+    return load_rows(db, _normalize_values(values), allow_shrink)

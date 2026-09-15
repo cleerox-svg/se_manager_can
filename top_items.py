@@ -5,23 +5,36 @@ convention of accepting a db instance and opening its own connection internally.
 """
 from datetime import date
 
+from constants import STAGE_CLOSED_WON
 from salesforce_links import opportunity_url
 
 _ROW_COLUMNS = "id, entry_date, content, status, created_at, updated_at"
+
+# Cap on the wins listed in the scaffold. A week's closed-won list is short in
+# practice, but this block is pasted into a message a human reads, so the
+# query is bounded rather than trusting the data to stay small.
+DEFAULT_WINS_LIMIT = 25
 
 
 def _row_to_dict(row):
     return dict(row) if row else None
 
 
-def build_scaffold(db) -> str:
+def build_scaffold(db, wins_limit=DEFAULT_WINS_LIMIT) -> str:
     with db.conn() as c:
+        # `closed_deals` holds Won *and* Lost rows, so the Closed/Won filter is
+        # what keeps a lost deal out of the "wins" block — same rule CLAUDE.md
+        # records for every dollar query against this table. Ordered and
+        # bounded so the pasted list is deterministic top-down by ARR rather
+        # than in SQLite's arbitrary row order.
         deal_rows = [
             dict(r)
             for r in c.execute(
-                "SELECT * FROM closed_deals "
-                "WHERE sales_stage = '10 - Closed/Won' "
-                "AND close_date >= date('now', '-7 days')"
+                "SELECT opportunity_name, opportunity_id, amount FROM closed_deals "
+                "WHERE sales_stage = ? "
+                "AND close_date >= date('now', '-7 days') "
+                "ORDER BY amount DESC, opportunity_name LIMIT ?",
+                (STAGE_CLOSED_WON, wins_limit),
             ).fetchall()
         ]
 

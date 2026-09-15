@@ -12,6 +12,8 @@ import json
 import re
 from datetime import date, datetime
 
+from attribution import ATTRIBUTED_SE_ID_SQL, EFFECTIVE_SE_ID_SQL, LEAD_SE_ID_SQL
+from constants import FORECAST_RISK, PRESALES_TECH_WIN, STAGE_CLOSED_WON
 from salesforce_links import opportunity_url
 
 # Static, team-wide Command of the Message recital ("The Mantra" — Force
@@ -58,7 +60,7 @@ _STAGE_BUCKETS = {
     "3 - Technical Scoping": "Early Tech",
     "4 - Validate Solution": "Validate Solution",
     "5 - Final Due Diligence": "Final Due Diligence",
-    "6 - Technical Win": "Technical Win",
+    PRESALES_TECH_WIN: "Technical Win",
 }
 
 _STAGE_ORDER = {
@@ -66,7 +68,7 @@ _STAGE_ORDER = {
     "3 - Technical Scoping": 2,
     "4 - Validate Solution": 3,
     "5 - Final Due Diligence": 4,
-    "6 - Technical Win": 5,
+    PRESALES_TECH_WIN: 5,
 }
 
 _BUCKET_ORDER = {
@@ -79,6 +81,23 @@ _BUCKET_ORDER = {
 
 _EXCLUDED_TOP_DEAL_BUCKETS = ("Technical Win", "Final Due Diligence")
 
+# Default cap for the list-shaped builders (SFDC updates, missing notes,
+# needs-a-Lead-SE). These feed both an API response and a copy-pasted Slack
+# message, so an uncapped list is a wall of text nobody reads — named rather
+# than sliced inline so a caller can widen it deliberately.
+DEFAULT_LIST_LIMIT = 25
+
+# Sentinel returned by fiscal_quarter_sort_key() for a missing/unparseable
+# label. Sorts *before* every real quarter, so any caller that groups by
+# quarter must label or drop the undated bucket rather than emitting a
+# leading `null`.
+_UNKNOWN_QUARTER_KEY = (-1, -1)
+
+# Display label for rows whose target/close date is missing or unparseable.
+UNDATED_QUARTER_LABEL = "Undated"
+
+_QUARTER_LABEL_RE = re.compile(r"^FY(\d{2})-Q([1-4])$")
+
 
 def fiscal_quarter(iso_date):
     """Okta's fiscal year runs Feb 1 - Jan 31, named by its start year
@@ -88,28 +107,51 @@ def fiscal_quarter(iso_date):
     SFDC pipeline's "current quarter" filter)."""
     if not iso_date:
         return None
-    d = datetime.strptime(iso_date[:10], "%Y-%m-%d")
+    try:
+        d = datetime.strptime(iso_date[:10], "%Y-%m-%d")
+    except (TypeError, ValueError):
+        # Both sync paths normalize dates, so this only fires on a hand-edited
+        # row ('9/15/2026', free text). Treat it as undated rather than
+        # raising: five endpoints group by fiscal quarter, and one bad cell
+        # used to 500 all of them.
+        return None
     fy_year = d.year if d.month >= 2 else d.year - 1
     fq = ((d.month - 2) % 12) // 3 + 1
     return f"FY{fy_year % 100:02d}-Q{fq}"
 
 
 def fiscal_quarter_sort_key(label):
-    """Higher key = more recent quarter; None/unknown sorts last."""
-    if not label:
-        return (-1, -1)
-    return (int(label[2:4]), int(label[-1]))
+    """Higher key = more recent quarter. A missing or malformed label yields
+    the _UNKNOWN_QUARTER_KEY sentinel, which sorts before every real quarter.
+    Parsed with a strict regex rather than fixed slices — `label[-1]` read
+    "FY26-Q10" as Q0, silently sorting it ahead of Q1."""
+    m = _QUARTER_LABEL_RE.match(label or "")
+    if not m:
+        return _UNKNOWN_QUARTER_KEY
+    return (int(m.group(1)), int(m.group(2)))
+
+
+def _is_quarter_key(key):
+    fy, q = key
+    return fy >= 0 and 1 <= q <= 4
 
 
 def quarter_label(key):
-    """Format a (fy, q) sort-key tuple as a display label, e.g. FY26-Q3."""
+    """Format a (fy, q) sort-key tuple as a display label, e.g. FY26-Q3.
+    Guards the unknown-quarter sentinel, which would otherwise format as the
+    nonsense label "FY-1-Q-1"."""
+    if not _is_quarter_key(key):
+        return UNDATED_QUARTER_LABEL
     return f"FY{key[0]:02d}-Q{key[1]}"
 
 
-def _offset_quarter_key(key, n):
+def offset_quarter_key(key, n):
     """Shift a (fy, q) key by n quarters, e.g. (26, 3) + 1 -> (26, 4),
     (26, 4) + 1 -> (27, 1). Used to find "next quarter" relative to
-    whatever quarter `key` represents."""
+    whatever quarter `key` represents. An unknown-quarter sentinel is
+    returned unshifted — offsetting it produced keys like (-2, 4)."""
+    if not _is_quarter_key(key):
+        return key
     fy, q = key
     q += n
     while q > 4:
@@ -119,6 +161,19 @@ def _offset_quarter_key(key, n):
         q += 4
         fy -= 1
     return (fy, q)
+
+
+# app.py still calls the pre-rename private name; keep it as an alias so the
+# public helper can be promoted without touching that caller.
+_offset_quarter_key = offset_quarter_key
+
+
+def next_fiscal_quarter_label(label=None):
+    """Display label for the quarter after `label` (today's fiscal quarter
+    when omitted). Public entry point so callers don't have to chain
+    fiscal_quarter_sort_key/offset_quarter_key/quarter_label themselves."""
+    key = fiscal_quarter_sort_key(label or current_fiscal_quarter())
+    return quarter_label(offset_quarter_key(key, 1))
 
 
 def fiscal_quarter_date_range(key):
@@ -144,19 +199,71 @@ def current_fiscal_quarter():
     return fiscal_quarter(date.today().isoformat())
 
 
-def quarter_bucket(target_date):
-    """Label a deal's target_tw_date as 'current', 'next', or 'later' /
-    None relative to today's fiscal quarter — powers the Slack draft's
-    Current Quarter / Next Quarter split."""
+def quarter_bucket_detailed(target_date):
+    """Label a deal's target_tw_date as 'current', 'next', 'overdue' or
+    'later' / None relative to today's fiscal quarter. 'overdue' means the
+    target quarter has already closed — those are the most urgent deals on
+    the board, so the SFDC-note drafts and the Slack draft must surface them
+    rather than let them sink into the 'later' tail."""
     if not target_date:
         return None
     key = fiscal_quarter_sort_key(fiscal_quarter(target_date))
+    if key == _UNKNOWN_QUARTER_KEY:
+        return None  # unparseable date — same as carrying no date at all
     current_key = fiscal_quarter_sort_key(current_fiscal_quarter())
     if key == current_key:
         return "current"
-    if key == _offset_quarter_key(current_key, 1):
+    if key == offset_quarter_key(current_key, 1):
         return "next"
-    return "later"
+    return "overdue" if key < current_key else "later"
+
+
+def quarter_bucket(target_date):
+    """Three-way 'current'/'next'/'later' bucket — 'later' covers both future
+    and already-passed quarters. Kept as-is for app.py, which layers its own
+    overdue refinement on top of this return value; new code in this module
+    calls quarter_bucket_detailed() instead."""
+    bucket = quarter_bucket_detailed(target_date)
+    return "later" if bucket == "overdue" else bucket
+
+
+def _money(amount):
+    """Format a nullable amount as "$1,234". `tech_forecast_deals.amount` is
+    nullable — a blank sheet cell syncs as None — and f"${None:,.0f}" raises
+    TypeError, which 500'd the Slack-draft endpoint whenever one deal on the
+    board had no amount yet."""
+    return f"${amount or 0:,.0f}"
+
+
+def _target_tw_date(row):
+    """A deal's target Technical Win date: the explicit Tech Win Date when
+    set, else the commercial Close Date."""
+    return row.get("technical_win_date") or row.get("close_date")
+
+
+def _by_amount_desc(rows):
+    """Highest-$ first, tie-broken on a stable identity. The preread query has
+    no ORDER BY, so SQLite's row order is arbitrary — without the secondary
+    key, equal-amount deals (two blanks, two round numbers) swap places
+    between otherwise identical runs of the same draft."""
+    return sorted(
+        rows,
+        key=lambda r: (
+            -(r.get("amount") or 0),
+            (r.get("opportunity_name") or "").lower(),
+            r.get("sheet_key") or r.get("opportunity_id") or "",
+        ),
+    )
+
+
+def effective_se_display_name(row):
+    """The SE a deal should be *presented* under: the rep resolved by
+    attribution's three-step precedence (manual assignment > sheet Lead SE
+    name > opportunity-name join), falling back to the sheet's raw Lead SE
+    text for names that aren't `se_reps` rows at all (Mary Greenlee, departed
+    reps). Empty string only when nothing resolves — that, and only that, is
+    the "No Lead SE on file" case."""
+    return (row.get("effective_se_name") or row.get("lead_se_name") or "").strip()
 
 
 def _slack_opp_link(d):
@@ -198,32 +305,49 @@ def aggregate_buckets(deal_rows):
     return buckets
 
 
+# Stage bucket -> key-metric class. Shared by build_key_metrics (live rows)
+# and build_arr_trend (re-derived snapshot totals) so the two can't drift:
+# they're the same numbers, one from today's rows and one from history.
+_METRIC_CLASSES = {
+    "Technical Win": "won",
+    "Validate Solution": "in_flight",
+    "Final Due Diligence": "in_flight",
+    "Untagged": "untagged",
+}
+
+
+def metric_class(bucket):
+    """'won' / 'in_flight' / 'untagged' for a stage bucket, else None."""
+    return _METRIC_CLASSES.get(bucket)
+
+
 def build_key_metrics(deal_rows):
-    total_amount = sum(r.get("amount") or 0 for r in deal_rows)
-    total_count = len(deal_rows)
+    totals = {cls: {"amount": 0.0, "count": 0} for cls in ("won", "in_flight", "untagged")}
+    total_amount = 0.0
+    total_count = 0
 
-    won = [r for r in deal_rows if stage_bucket(r.get("presales_stage")) == "Technical Win"]
-    won_amount = sum(r.get("amount") or 0 for r in won)
+    # One pass: stage_bucket() used to be recomputed ~4x per row across four
+    # separate list comprehensions over the same list.
+    for r in deal_rows:
+        amount = r.get("amount") or 0
+        total_amount += amount
+        total_count += 1
+        slot = totals.get(metric_class(stage_bucket(r.get("presales_stage"))))
+        if slot is not None:
+            slot["amount"] += amount
+            slot["count"] += 1
 
-    in_flight = [
-        r for r in deal_rows
-        if stage_bucket(r.get("presales_stage")) in ("Validate Solution", "Final Due Diligence")
-    ]
-    in_flight_amount = sum(r.get("amount") or 0 for r in in_flight)
-
-    untagged = [r for r in deal_rows if stage_bucket(r.get("presales_stage")) == "Untagged"]
-    untagged_amount = sum(r.get("amount") or 0 for r in untagged)
-
+    won, in_flight, untagged = totals["won"], totals["in_flight"], totals["untagged"]
     return {
         "total_active_pipeline_amount": total_amount,
         "total_active_pipeline_count": total_count,
-        "total_tech_won_amount": won_amount,
-        "total_tech_won_count": len(won),
-        "total_tech_won_pct": (won_amount / total_amount) if total_amount else 0.0,
-        "in_flight_amount": in_flight_amount,
-        "in_flight_count": len(in_flight),
-        "untagged_amount": untagged_amount,
-        "untagged_count": len(untagged),
+        "total_tech_won_amount": won["amount"],
+        "total_tech_won_count": won["count"],
+        "total_tech_won_pct": (won["amount"] / total_amount) if total_amount else 0.0,
+        "in_flight_amount": in_flight["amount"],
+        "in_flight_count": in_flight["count"],
+        "untagged_amount": untagged["amount"],
+        "untagged_count": untagged["count"],
     }
 
 
@@ -254,34 +378,30 @@ def build_arr_trend(snapshot_rows):
     trend = []
     for row in snapshot_rows:
         buckets = json.loads(row["bucket_totals_json"])
-        won_amount = won_count = 0.0
-        in_flight_amount = in_flight_count = 0.0
-        untagged_amount = untagged_count = 0.0
-        total_amount = total_count = 0.0
+        totals = {cls: {"amount": 0.0, "count": 0} for cls in ("won", "in_flight", "untagged")}
+        total_amount = 0.0
+        total_count = 0
         for stage_slots in buckets.values():
             for bucket, slot in stage_slots.items():
                 amount, count = slot.get("amount", 0), slot.get("count", 0)
                 total_amount += amount
                 total_count += count
-                if bucket == "Technical Win":
-                    won_amount += amount
-                    won_count += count
-                elif bucket in ("Validate Solution", "Final Due Diligence"):
-                    in_flight_amount += amount
-                    in_flight_count += count
-                elif bucket == "Untagged":
-                    untagged_amount += amount
-                    untagged_count += count
+                # Same classifier build_key_metrics uses — the duplicated
+                # if/elif chain here drifted out of sync too easily.
+                cls = totals.get(metric_class(bucket))
+                if cls is not None:
+                    cls["amount"] += amount
+                    cls["count"] += count
         trend.append({
             "snapshot_date": row["snapshot_date"],
             "total_amount": total_amount,
             "total_count": int(total_count),
-            "tech_won_amount": won_amount,
-            "tech_won_count": int(won_count),
-            "in_flight_amount": in_flight_amount,
-            "in_flight_count": int(in_flight_count),
-            "untagged_amount": untagged_amount,
-            "untagged_count": int(untagged_count),
+            "tech_won_amount": totals["won"]["amount"],
+            "tech_won_count": int(totals["won"]["count"]),
+            "in_flight_amount": totals["in_flight"]["amount"],
+            "in_flight_count": int(totals["in_flight"]["count"]),
+            "untagged_amount": totals["untagged"]["amount"],
+            "untagged_count": int(totals["untagged"]["count"]),
         })
     return trend
 
@@ -296,23 +416,81 @@ def build_tech_win_trend(closed_win_rows, open_win_rows):
     Technical Wins (closed_deals where tech_win=1, dated by close_date);
     `open_win_rows` are deals currently sitting at the Technical Win stage
     in the open pipeline, dated by technical_win_date falling back to
-    close_date, same precedence as build_top_deals."""
-    by_quarter = {}
-    for r in closed_win_rows:
-        q = fiscal_quarter(r.get("close_date"))
-        slot = by_quarter.setdefault(q, {"amount": 0.0, "count": 0})
-        slot["amount"] += r.get("amount") or 0
-        slot["count"] += 1
-    for r in open_win_rows:
-        q = fiscal_quarter(r.get("technical_win_date") or r.get("close_date"))
-        slot = by_quarter.setdefault(q, {"amount": 0.0, "count": 0})
-        slot["amount"] += r.get("amount") or 0
-        slot["count"] += 1
+    close_date, same precedence as build_top_deals.
 
-    return [
+    Two counting rules, both of which used to be missing:
+
+    * **Dedupe.** A won deal lives in `closed_deals` (tech_win=1) *and* stays
+      in `tech_forecast_deals` at Technical Win / Closed-Won — a state
+      build_sfdc_updates already filters for — so its ARR and count landed in
+      the quarter twice. Open rows already seen in the closed set, or already
+      marked Closed/Won, are skipped. Callers should therefore select
+      `opportunity_id`/`opportunity_name` and `sales_stage` on both sides;
+      when neither identifier is present the match falls back to
+      (amount, close_date), which is the only signal left.
+    * **Closed/Won only for revenue.** `closed_deals` holds Won *and* Lost
+      rows, so a technical win that closed Lost stays visible in `count`
+      (it happened) but is excluded from `amount` and reported separately as
+      `closed_lost_count`. Rows with no `sales_stage` column selected can't
+      be classified and are treated as won, as before.
+    """
+    by_quarter = {}
+    seen = set()
+
+    def _identity(r):
+        opp_id = r.get("opportunity_id")
+        if opp_id:
+            return ("id", str(opp_id))
+        name = (r.get("opportunity_name") or "").strip().lower()
+        if name:
+            return ("name", name)
+        amount = r.get("amount")
+        if amount and r.get("close_date"):
+            return ("amount_date", amount, r["close_date"])
+        return None
+
+    def _add(quarter, amount, is_revenue):
+        slot = by_quarter.setdefault(
+            quarter, {"amount": 0.0, "count": 0, "closed_lost_count": 0}
+        )
+        slot["count"] += 1
+        if is_revenue:
+            slot["amount"] += amount
+        else:
+            slot["closed_lost_count"] += 1
+
+    for r in closed_win_rows:
+        identity = _identity(r)
+        if identity:
+            seen.add(identity)
+        stage = r.get("sales_stage")
+        _add(
+            fiscal_quarter(r.get("close_date")),
+            r.get("amount") or 0,
+            stage is None or stage == STAGE_CLOSED_WON,
+        )
+
+    for r in open_win_rows:
+        if r.get("sales_stage") == STAGE_CLOSED_WON:
+            continue  # already counted out of closed_deals
+        identity = _identity(r)
+        if identity and identity in seen:
+            continue
+        if identity:
+            seen.add(identity)
+        _add(fiscal_quarter(_target_tw_date(r)), r.get("amount") or 0, True)
+
+    # Undated rows used to emit a `fiscal_quarter: null` bucket that sorted
+    # ahead of every real quarter (the (-1,-1) sentinel), drawing an
+    # unlabeled leading bar on the Dashboard. Label it and sort it last.
+    undated = by_quarter.pop(None, None)
+    trend = [
         {"fiscal_quarter": q, **by_quarter[q]}
         for q in sorted(by_quarter, key=fiscal_quarter_sort_key)
     ]
+    if undated:
+        trend.append({"fiscal_quarter": UNDATED_QUARTER_LABEL, **undated})
+    return trend
 
 
 _STAGE_QUESTIONS = {
@@ -321,7 +499,7 @@ _STAGE_QUESTIONS = {
     "3 - Technical Scoping": "How are our capabilities lining up with their decision criteria so far?",
     "4 - Validate Solution": "Are we landing the \"how we do it better\" story — any proof points clicking with the economic buyer?",
     "5 - Final Due Diligence": "What's left on the decision/paper process side before we get to close?",
-    "6 - Technical Win": "Anything on decision criteria or champion support worth keeping an eye on before close?",
+    PRESALES_TECH_WIN: "Anything on decision criteria or champion support worth keeping an eye on before close?",
 }
 
 
@@ -341,7 +519,7 @@ def build_discussion_question(row):
         return "Nothing logged for next steps yet — what's the story here, and how can the team help?"
     if row.get("notes_stale"):
         return "Hasn't moved since last sync — anything blocking, or support you need to keep it going?"
-    if row.get("forecast_status") == "Forecasted Risk":
+    if row.get("forecast_status") == FORECAST_RISK:
         return "Flagged as at-risk — want to talk through what's going on and how we de-risk it together?"
     return _STAGE_QUESTIONS.get(row.get("presales_stage"), "What's needed to move this toward Technical Win?")
 
@@ -357,7 +535,9 @@ def build_top_deals(deal_rows, limit=10, per_quarter_limit=None):
     `limit` (e.g. /api/tech-forecast/preread's `?limit=`) still gets a
     generous per-quarter candidate pool; "later"/unscheduled deals keep the
     old flat `limit` cap since build_slack_draft doesn't group that bucket
-    by SE."""
+    by SE. "overdue" (target quarter already closed) gets the per-quarter cap
+    too — those are the deals most in need of airtime, and they used to be
+    capped away inside "later"."""
     if per_quarter_limit is None:
         per_quarter_limit = max(limit, 15)
     candidates = [
@@ -365,39 +545,39 @@ def build_top_deals(deal_rows, limit=10, per_quarter_limit=None):
         if stage_bucket(r.get("presales_stage")) not in _EXCLUDED_TOP_DEAL_BUCKETS
     ]
 
-    grouped = {"current": [], "next": [], "later": []}
+    grouped = {"overdue": [], "current": [], "next": [], "later": []}
     for r in candidates:
-        target_tw_date = r.get("technical_win_date") or r.get("close_date")
-        bucket = quarter_bucket(target_tw_date) or "later"
-        grouped.setdefault(bucket, grouped["later"]).append(r)
-
-    for group in grouped.values():
-        group.sort(key=lambda r: r.get("amount") or 0, reverse=True)
+        bucket = quarter_bucket_detailed(_target_tw_date(r)) or "later"
+        grouped[bucket if bucket in grouped else "later"].append(r)
 
     selected = (
-        grouped["current"][:per_quarter_limit]
-        + grouped["next"][:per_quarter_limit]
-        + grouped["later"][:limit]
+        _by_amount_desc(grouped["overdue"])[:per_quarter_limit]
+        + _by_amount_desc(grouped["current"])[:per_quarter_limit]
+        + _by_amount_desc(grouped["next"])[:per_quarter_limit]
+        + _by_amount_desc(grouped["later"])[:limit]
     )
 
     result = []
     for r in selected:
-        target_tw_date = r.get("technical_win_date") or r.get("close_date")
+        target_tw_date = _target_tw_date(r)
         result.append({
             "opportunity_name": r.get("opportunity_name"),
             "opportunity_url": opportunity_url(r.get("opportunity_id")),
-            "amount": r.get("amount"),
+            # Normalized to 0 rather than passed through as None: every
+            # consumer (Slack draft, page) formats this as money.
+            "amount": r.get("amount") or 0,
             "presales_stage": r.get("presales_stage"),
             "forecast_status": r.get("forecast_status"),
             "opportunity_owner": r.get("opportunity_owner"),
             "lead_se_name": r.get("lead_se_name") or "",
+            "effective_se_name": effective_se_display_name(r),
             "pre_sales_notes": r.get("pre_sales_notes") or "",
             "se_manager_notes": r.get("se_manager_notes") or "",
             "pre_sales_next_steps": r.get("pre_sales_next_steps") or "",
             "notes_stale": bool(r.get("notes_stale")),
             "target_tw_date": target_tw_date,
             "target_fiscal_quarter": fiscal_quarter(target_tw_date),
-            "quarter_bucket": quarter_bucket(target_tw_date),
+            "quarter_bucket": quarter_bucket_detailed(target_tw_date),
             "discussion_question": build_discussion_question(r),
         })
     return result
@@ -414,7 +594,7 @@ def _latest_note_entry(text):
 def draft_sfdc_note(row):
     opp = row.get("opportunity_name") or "This opportunity"
 
-    if row.get("presales_stage") == "6 - Technical Win":
+    if row.get("presales_stage") == PRESALES_TECH_WIN:
         message = (
             f"Technical Win is confirmed. Commercial stage is "
             f"{_stage_label(row.get('sales_stage'))} — no further pre-sales "
@@ -437,100 +617,103 @@ def draft_sfdc_note(row):
     return f"CL {date.today():%m/%d/%Y} : {message}"
 
 
-def build_sfdc_updates(deal_rows):
+# Buckets worth drafting an SFDC note for. "overdue" leads: a deal whose
+# target Tech Win date has already passed is the most urgent one on the
+# board, and under the old three-way quarter_bucket() it resolved to "later"
+# and produced no draft at all.
+_SFDC_UPDATE_BUCKETS = ("overdue", "current", "next")
+
+
+def build_sfdc_updates(deal_rows, limit=DEFAULT_LIST_LIMIT):
     candidates = [
         r for r in deal_rows
-        if r.get("sales_stage") != "10 - Closed/Won"
-        and quarter_bucket(r.get("technical_win_date") or r.get("close_date")) in ("current", "next")
+        if r.get("sales_stage") != STAGE_CLOSED_WON
+        and quarter_bucket_detailed(_target_tw_date(r)) in _SFDC_UPDATE_BUCKETS
     ]
-    candidates.sort(key=lambda r: r.get("amount") or 0, reverse=True)
     return [
         {
             "opportunity_name": r.get("opportunity_name"),
             "opportunity_url": opportunity_url(r.get("opportunity_id")),
-            "amount": r.get("amount"),
+            "amount": r.get("amount") or 0,
             "presales_stage": r.get("presales_stage"),
             "sales_stage": r.get("sales_stage"),
             "lead_se_name": r.get("lead_se_name") or "",
-            "target_fiscal_quarter": fiscal_quarter(r.get("technical_win_date") or r.get("close_date")),
-            "quarter_bucket": quarter_bucket(r.get("technical_win_date") or r.get("close_date")),
+            "effective_se_name": effective_se_display_name(r),
+            "target_fiscal_quarter": fiscal_quarter(_target_tw_date(r)),
+            "quarter_bucket": quarter_bucket_detailed(_target_tw_date(r)),
             "proposed_note": draft_sfdc_note(r),
         }
-        for r in candidates
+        for r in _by_amount_desc(candidates)[:limit]
     ]
 
 
-def build_missing_notes(deal_rows):
+def build_missing_notes(deal_rows, limit=DEFAULT_LIST_LIMIT):
     """Open deals (not yet a Technical Win) with no Pre-Sales Next Steps
     logged at all — a stronger, more urgent signal than `notes_stale`
     (which just means an existing next step hasn't changed)."""
     candidates = [
         r for r in deal_rows
-        if r.get("presales_stage") != "6 - Technical Win" and not (r.get("pre_sales_next_steps") or "").strip()
+        if r.get("presales_stage") != PRESALES_TECH_WIN
+        and not (r.get("pre_sales_next_steps") or "").strip()
     ]
-    candidates.sort(key=lambda r: r.get("amount") or 0, reverse=True)
     return [
         {
             "opportunity_name": r.get("opportunity_name"),
             "opportunity_url": opportunity_url(r.get("opportunity_id")),
-            "amount": r.get("amount"),
+            "amount": r.get("amount") or 0,
             "presales_stage": r.get("presales_stage"),
             "lead_se_name": r.get("lead_se_name") or "",
+            "effective_se_name": effective_se_display_name(r),
         }
-        for r in candidates
+        for r in _by_amount_desc(candidates)[:limit]
     ]
 
 
-def build_needs_lead_se(deal_rows):
+def build_needs_lead_se(deal_rows, limit=DEFAULT_LIST_LIMIT):
     """Deals the sheet itself has no Lead SE set for yet — the literal
     "-" group, independent of any manual override or opportunity-name-join
-    fallback the app might otherwise resolve."""
+    fallback the app might otherwise resolve. Deliberately reads the RAW
+    `lead_se_name`, not the attribution-resolved effective name: this is the
+    step-0 "nobody typed an SE into the sheet" signal, and resolving it would
+    hide exactly the rows it exists to surface."""
     candidates = [r for r in deal_rows if not r.get("lead_se_name")]
-    candidates.sort(key=lambda r: r.get("amount") or 0, reverse=True)
     return [
         {
             "opportunity_name": r.get("opportunity_name"),
             "opportunity_url": opportunity_url(r.get("opportunity_id")),
-            "amount": r.get("amount"),
+            "amount": r.get("amount") or 0,
             "presales_stage": r.get("presales_stage"),
             "forecast_status": r.get("forecast_status"),
             "opportunity_owner": r.get("opportunity_owner"),
         }
-        for r in candidates
+        for r in _by_amount_desc(candidates)[:limit]
     ]
 
 
 def build_executive_takeaway(metrics):
     return (
-        f"Technical pipeline stands at ${metrics['total_active_pipeline_amount']:,.0f} "
+        f"Technical pipeline stands at {_money(metrics['total_active_pipeline_amount'])} "
         f"across {metrics['total_active_pipeline_count']} active opportunities. "
-        f"${metrics['total_tech_won_amount']:,.0f} ({metrics['total_tech_won_pct']:.0%}) is "
+        f"{_money(metrics['total_tech_won_amount'])} ({metrics['total_tech_won_pct']:.0%}) is "
         f"already secured as Technical Wins, with {metrics['in_flight_count']} deals "
-        f"(${metrics['in_flight_amount']:,.0f}) in active SE engagement (Validate Solution / "
+        f"({_money(metrics['in_flight_amount'])}) in active SE engagement (Validate Solution / "
         f"Final Due Diligence). {metrics['untagged_count']} deals "
-        f"(${metrics['untagged_amount']:,.0f}) are untagged and need SE Manager triage."
+        f"({_money(metrics['untagged_amount'])}) are untagged and need SE Manager triage."
     )
 
 
-def build_weekly_deltas(db):
-    today = date.today().isoformat()
-    with db.conn() as c:
-        prior = c.execute(
-            "SELECT * FROM tech_forecast_snapshots WHERE snapshot_date < ? "
-            "ORDER BY snapshot_date DESC LIMIT 1",
-            (today,),
-        ).fetchone()
-        current_rows = [
-            dict(r) for r in c.execute(
-                "SELECT sheet_key, opportunity_name, opportunity_id, amount, presales_stage, forecast_status "
-                "FROM tech_forecast_deals"
-            ).fetchall()
-        ]
+def build_weekly_deltas(current_rows, prior_states):
+    """Diff the deal rows the caller already holds against `prior_states` —
+    the previous snapshot's parsed `deal_states_json`, or None when there's no
+    earlier snapshot to diff against.
 
-    if not prior:
+    Pure, like the rest of this module: it used to take `db` and re-read
+    `tech_forecast_deals` in a second transaction, so a sync landing mid-
+    request could leave the deltas describing a different set of rows than the
+    metrics in the same response."""
+    if not prior_states:
         return []
 
-    prior_states = json.loads(prior["deal_states_json"])
     current_states = {r["sheet_key"]: r for r in current_rows}
 
     prior_keys = set(prior_states)
@@ -544,7 +727,7 @@ def build_weekly_deltas(db):
             "type": "new",
             "opportunity_name": r["opportunity_name"],
             "opportunity_url": opportunity_url(r.get("opportunity_id")),
-            "amount": r["amount"],
+            "amount": r.get("amount") or 0,
             "detail": f"New to pipeline at {r['presales_stage'] or 'Untagged'}",
         })
 
@@ -554,7 +737,7 @@ def build_weekly_deltas(db):
             "type": "dropped",
             "opportunity_name": r["opportunity_name"],
             "opportunity_url": opportunity_url(r.get("opportunity_id")),
-            "amount": r["amount"],
+            "amount": r.get("amount") or 0,
             "detail": "Dropped off the technical pipeline since last week",
         })
 
@@ -568,7 +751,7 @@ def build_weekly_deltas(db):
                 "type": direction,
                 "opportunity_name": cur["opportunity_name"],
                 "opportunity_url": opportunity_url(cur.get("opportunity_id")),
-                "amount": cur["amount"],
+                "amount": cur.get("amount") or 0,
                 "detail": f"{prev['presales_stage'] or 'Untagged'} -> {cur['presales_stage'] or 'Untagged'}",
             })
         elif prev["forecast_status"] != cur["forecast_status"]:
@@ -576,15 +759,66 @@ def build_weekly_deltas(db):
                 "type": "status_change",
                 "opportunity_name": cur["opportunity_name"],
                 "opportunity_url": opportunity_url(cur.get("opportunity_id")),
-                "amount": cur["amount"],
+                "amount": cur.get("amount") or 0,
                 "detail": f"{prev['forecast_status'] or 'Untagged'} -> {cur['forecast_status'] or 'Untagged'}",
             })
 
-    deltas.sort(key=lambda d: d.get("amount") or 0, reverse=True)
-    return deltas
+    return _by_amount_desc(deltas)
 
 
-def build_slack_draft(preread):
+# Per-section caps for the copy-pasted draft. Named (and overridable) rather
+# than sliced inline: the lists these read are already capped by
+# build_preread, but build_slack_draft also accepts a preread built elsewhere.
+SLACK_LATER_LIMIT = 5
+SLACK_LIST_LIMIT = 10
+SLACK_DELTA_LIMIT = 8
+
+
+def _deal_bullet(d, show_se=False):
+    """The draft's one deal-bullet shape: opportunity, ARR, stage, optional
+    SE, then the discussion question underneath. Rendered identically in the
+    per-SE groups, the no-Lead-SE group and the unscheduled tail — it was
+    copy-pasted three times, which is how the `${amount:,.0f}` NULL crash got
+    three chances to fire."""
+    suffix = ""
+    if show_se:
+        suffix = f", SE: {effective_se_display_name(d) or 'no Lead SE on file'}"
+    return [
+        f"- {_slack_opp_link(d)} — {_money(d.get('amount'))} "
+        f"({_stage_label(d.get('presales_stage'))}{suffix})",
+        f"  ↳ {d['discussion_question']}",
+    ]
+
+
+def _group_by_se(deals):
+    """(ordered [(display_name, deals)], deals with no SE at all).
+
+    Keyed by lowercased name so casing differences (e.g. "nic da silva" vs
+    "Nic Da Silva") group together rather than splitting into separate
+    sub-headings; display name uses the casing from the first deal seen for
+    that SE. Groups on the attribution-resolved name, not the sheet's raw
+    Lead SE column — a deal Claude Leroux assigned by hand in the UI used to
+    render under "No Lead SE on file" and leave its ARR out of that SE's
+    subtotal."""
+    se_groups = {}
+    no_se_group = []
+    for d in deals:
+        name = effective_se_display_name(d)
+        if not name:
+            no_se_group.append(d)
+            continue
+        slot = se_groups.setdefault(name.lower(), {"name": name, "deals": []})
+        slot["deals"].append(d)
+
+    ordered = sorted(
+        se_groups.items(),
+        key=lambda kv: (-sum(d.get("amount") or 0 for d in kv[1]["deals"]), kv[0]),
+    )
+    return ordered, no_se_group
+
+
+def build_slack_draft(preread, later_limit=SLACK_LATER_LIMIT,
+                      list_limit=SLACK_LIST_LIMIT, delta_limit=SLACK_DELTA_LIMIT):
     """Template-formatted Slack message for the weekly Tech Forecast call —
     deliberately not LLM-drafted (no LITELLM_API_KEY configured yet); every
     fact here already exists on the preread payload, so this is pure string
@@ -600,12 +834,12 @@ def build_slack_draft(preread):
 
     m = preread["key_metrics"]
     lines += [
-        f"- Total active pipeline: ${m['total_active_pipeline_amount']:,.0f} "
+        f"- Total active pipeline: {_money(m['total_active_pipeline_amount'])} "
         f"({m['total_active_pipeline_count']} deals)",
-        f"- Technical Wins secured: ${m['total_tech_won_amount']:,.0f} "
+        f"- Technical Wins secured: {_money(m['total_tech_won_amount'])} "
         f"({m['total_tech_won_pct']:.0%}, {m['total_tech_won_count']} deals)",
-        f"- In active SE engagement: ${m['in_flight_amount']:,.0f} ({m['in_flight_count']} deals)",
-        f"- Untagged, needs triage: ${m['untagged_amount']:,.0f} ({m['untagged_count']} deals)",
+        f"- In active SE engagement: {_money(m['in_flight_amount'])} ({m['in_flight_count']} deals)",
+        f"- Untagged, needs triage: {_money(m['untagged_amount'])} ({m['untagged_count']} deals)",
         "",
     ]
 
@@ -613,16 +847,19 @@ def build_slack_draft(preread):
     lines.append("*Come ready to discuss:*")
     if top_deals:
         current_key = fiscal_quarter_sort_key(current_fiscal_quarter())
-        next_key = _offset_quarter_key(current_key, 1)
-        buckets = {"current": [], "next": [], "later": []}
+        next_key = offset_quarter_key(current_key, 1)
+        buckets = {"overdue": [], "current": [], "next": [], "later": []}
         for d in top_deals:
-            buckets.setdefault(d.get("quarter_bucket") or "later", buckets["later"]).append(d)
+            bucket = d.get("quarter_bucket") or "later"
+            buckets[bucket if bucket in buckets else "later"].append(d)
 
-        # "current" and "next" are grouped by lead SE and sorted by each
+        # "overdue"/"current"/"next" are grouped by SE and sorted by each
         # SE's aggregate ARR in that bucket (highest first), per Claude
         # Leroux (2026-09-14) — "later" stays flat/amount-sorted like
         # before since the request only concerns the current/next split.
+        # Overdue leads: a passed target date is more urgent than either.
         grouped_section_specs = [
+            ("overdue", "*Overdue — target Tech Win date has passed*"),
             ("current", f"*Current Quarter — {quarter_label(current_key)}*"),
             ("next", f"*Next Quarter — {quarter_label(next_key)}*"),
         ]
@@ -632,61 +869,26 @@ def build_slack_draft(preread):
                 continue
             lines.append(heading)
 
-            # Keyed by lowercased name so casing differences (e.g. "nic da
-            # silva" vs "Nic Da Silva") group together rather than splitting
-            # into separate sub-headings; display name uses the casing from
-            # the first deal seen for that SE.
-            se_groups = {}
-            no_se_group = []
-            for d in bucket_deals:
-                lead_se_name = (d.get("lead_se_name") or "").strip()
-                if not lead_se_name:
-                    no_se_group.append(d)
-                    continue
-                key = lead_se_name.lower()
-                slot = se_groups.setdefault(key, {"name": lead_se_name, "deals": []})
-                slot["deals"].append(d)
-
-            ordered_keys = sorted(
-                se_groups,
-                key=lambda key: sum(d["amount"] or 0 for d in se_groups[key]["deals"]),
-                reverse=True,
-            )
-
-            for key in ordered_keys:
-                name = se_groups[key]["name"]
-                se_deals = se_groups[key]["deals"]
-                se_arr = sum(d["amount"] or 0 for d in se_deals)
+            ordered, no_se_group = _group_by_se(bucket_deals)
+            for key, group in ordered:
+                se_arr = sum(d.get("amount") or 0 for d in group["deals"])
                 alias = _SLACK_ALIAS_BY_NAME.get(key)
                 mention = f" @{alias}" if alias else ""
-                lines.append(f"*{name}*{mention} — ${se_arr:,.0f}")
-                for d in se_deals:
-                    lines.append(
-                        f"- {_slack_opp_link(d)} — ${d['amount']:,.0f} "
-                        f"({_stage_label(d['presales_stage'])})"
-                    )
-                    lines.append(f"  ↳ {d['discussion_question']}")
+                lines.append(f"*{group['name']}*{mention} — {_money(se_arr)}")
+                for d in group["deals"]:
+                    lines += _deal_bullet(d)
 
             if no_se_group:
-                no_se_arr = sum(d["amount"] or 0 for d in no_se_group)
-                lines.append(f"*No Lead SE on file* — ${no_se_arr:,.0f}")
+                no_se_arr = sum(d.get("amount") or 0 for d in no_se_group)
+                lines.append(f"*No Lead SE on file* — {_money(no_se_arr)}")
                 for d in no_se_group:
-                    lines.append(
-                        f"- {_slack_opp_link(d)} — ${d['amount']:,.0f} "
-                        f"({_stage_label(d['presales_stage'])})"
-                    )
-                    lines.append(f"  ↳ {d['discussion_question']}")
+                    lines += _deal_bullet(d)
 
         later_deals = buckets.get("later") or []
         if later_deals:
             lines.append("*Unscheduled / later:*")
-            for d in later_deals[:5]:
-                se = d["lead_se_name"] or "no Lead SE on file"
-                lines.append(
-                    f"- {_slack_opp_link(d)} — ${d['amount']:,.0f} "
-                    f"({_stage_label(d['presales_stage'])}, SE: {se})"
-                )
-                lines.append(f"  ↳ {d['discussion_question']}")
+            for d in later_deals[:later_limit]:
+                lines += _deal_bullet(d, show_se=True)
     else:
         lines.append("- Nothing outstanding — pipeline is caught up.")
     lines.append("")
@@ -694,22 +896,28 @@ def build_slack_draft(preread):
     missing_notes = preread["missing_notes"]
     if missing_notes:
         lines.append("*Missing notes — no next steps logged:*")
-        for d in missing_notes:
-            se = d["lead_se_name"] or "no Lead SE on file"
-            lines.append(f"- {_slack_opp_link(d)} — ${d['amount']:,.0f} ({_stage_label(d['presales_stage'])}, SE: {se})")
+        for d in missing_notes[:list_limit]:
+            se = effective_se_display_name(d) or "no Lead SE on file"
+            lines.append(
+                f"- {_slack_opp_link(d)} — {_money(d.get('amount'))} "
+                f"({_stage_label(d.get('presales_stage'))}, SE: {se})"
+            )
         lines.append("")
 
     needs_lead_se = preread["needs_lead_se"]
     if needs_lead_se:
         lines.append("*Needs a Lead SE — please claim one if it's yours:*")
-        for d in needs_lead_se:
-            lines.append(f"- {_slack_opp_link(d)} — ${d['amount']:,.0f} (AE: {d['opportunity_owner'] or '-'})")
+        for d in needs_lead_se[:list_limit]:
+            lines.append(
+                f"- {_slack_opp_link(d)} — {_money(d.get('amount'))} "
+                f"(AE: {d.get('opportunity_owner') or '-'})"
+            )
         lines.append("")
 
     lines.append("*Since last sync:*")
     deltas = preread["weekly_deltas"]
     if deltas:
-        for d in deltas[:8]:
+        for d in deltas[:delta_limit]:
             lines.append(f"- {_slack_opp_link(d)}: {d['detail']}")
     else:
         lines.append("- No changes since last sync yet.")
@@ -721,10 +929,43 @@ def build_slack_draft(preread):
     return "\n".join(lines)
 
 
-def build_preread(db, limit=10):
-    with db.conn() as c:
-        deal_rows = [dict(r) for r in c.execute("SELECT * FROM tech_forecast_deals").fetchall()]
+# Every preread row carries the SE that attribution resolves for it, not just
+# the sheet's raw Lead SE column: the manual assignment made from the Tech
+# Forecast page (step 1) and the opportunity-name join (step 3) were invisible
+# here, so an assigned deal rendered under "No Lead SE on file" in the Monday
+# message and its ARR was missing from that SE's subtotal. The precedence
+# itself lives in attribution.py — this is the third query site to need it.
+# The name lookup wraps the id resolution so EFFECTIVE_SE_ID_SQL is evaluated
+# once per row rather than again per name.
+_PREREAD_DEALS_SQL = f"""
+    SELECT t.*,
+        (SELECT r3.name FROM se_reps r3 WHERE r3.id = t.effective_se_rep_id) AS effective_se_name
+    FROM (
+        SELECT tf.*,
+            {LEAD_SE_ID_SQL} AS lead_se_rep_id,
+            {ATTRIBUTED_SE_ID_SQL} AS attributed_se_id,
+            {EFFECTIVE_SE_ID_SQL} AS effective_se_rep_id
+        FROM tech_forecast_deals tf
+    ) t
+"""
 
+
+def build_preread(db, limit=10, list_limit=DEFAULT_LIST_LIMIT):
+    today = date.today().isoformat()
+    with db.conn() as c:
+        deal_rows = [dict(r) for r in c.execute(_PREREAD_DEALS_SQL).fetchall()]
+        # Same transaction as the rows above, and only the one column the diff
+        # needs (deal_states_json is a full per-deal blob). build_weekly_deltas
+        # used to re-read the whole deals table in a second transaction, so a
+        # sync landing mid-request could make the two halves of one response
+        # describe different data.
+        prior = c.execute(
+            "SELECT deal_states_json FROM tech_forecast_snapshots WHERE snapshot_date < ? "
+            "ORDER BY snapshot_date DESC LIMIT 1",
+            (today,),
+        ).fetchone()
+
+    prior_states = json.loads(prior["deal_states_json"]) if prior else None
     metrics = build_key_metrics(deal_rows)
     top_deals = build_top_deals(deal_rows, limit=limit)
 
@@ -733,8 +974,8 @@ def build_preread(db, limit=10):
         "key_metrics": metrics,
         "breakdown": build_breakdown(deal_rows),
         "top_deals": top_deals,
-        "weekly_deltas": build_weekly_deltas(db),
-        "needs_lead_se": build_needs_lead_se(deal_rows),
-        "missing_notes": build_missing_notes(deal_rows),
+        "weekly_deltas": build_weekly_deltas(deal_rows, prior_states),
+        "needs_lead_se": build_needs_lead_se(deal_rows, limit=list_limit),
+        "missing_notes": build_missing_notes(deal_rows, limit=list_limit),
         "generated_at": datetime.now().isoformat(),
     }

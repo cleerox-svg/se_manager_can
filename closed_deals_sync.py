@@ -22,12 +22,18 @@ flat per-row column (blank, or "6 - Technical Win") that drives the
 `tech_win` flag — it is not a group level.
 
 We drop subtotal/total rows and any row with a blank Opportunity Name to get
-one clean row per closed opportunity.
+one clean row per closed opportunity. Group-cell parsing now goes through
+`sheet_parse.strip_group_label`, which converges this tab on the *safest* of
+the three syncs' previously divergent behaviours: a bare Subtotal/Total marker
+is treated as row-shape noise (inherit the fill, keep buffering) rather than a
+group boundary, and a bare "-" — previously unhandled here, so it
+forward-filled into `rep_name` as if it were a person — now reads as "nobody
+assigned" and lands as "Unassigned".
 """
 
-import hashlib
-import re
-from datetime import datetime
+import sheet_parse
+from constants import PRESALES_TECH_WIN
+from db import utc_now_iso
 
 _HEADER_MAP = {
     "Team Member Name": "rep_name",
@@ -43,55 +49,34 @@ _HEADER_MAP = {
 
 _GROUP_LEVELS = ("rep_name", "team_role", "region")
 
-_SKIP_MARKERS = ("subtotal", "total")
-
-_GROUP_SUFFIX_RE = re.compile(r"\s*\(USD[^)]*\)\s*$")
-
-
-def _strip_group_suffix(raw: str) -> str:
-    """Strip the trailing running-total, e.g. 'Sean Keleher (USD 1,095,169.27)'
-    -> 'Sean Keleher'. A bare 'Subtotal'/'Total' group cell collapses to ''
-    so it never forward-fills and poisons the next group's rows."""
-    stripped = _GROUP_SUFFIX_RE.sub("", raw).strip()
-    if stripped.lower() in _SKIP_MARKERS:
-        return ""
-    return stripped
-
-
-def _parse_amount(raw: str) -> float | None:
-    if not raw:
-        return None
-    cleaned = re.sub(r"[^0-9.\-]", "", raw)
-    if not cleaned or cleaned in ("-", "."):
-        return None
-    try:
-        return float(cleaned)
-    except ValueError:
-        return None
-
-
-def _parse_close_date(raw: str) -> str | None:
-    if not raw:
-        return None
-    for fmt in ("%m/%d/%Y", "%Y-%m-%d", "%m/%d/%y"):
-        try:
-            return datetime.strptime(raw.strip(), fmt).date().isoformat()
-        except ValueError:
-            continue
-    return None
+# Headers we cannot do without: losing any one of them either empties the sync
+# or silently re-keys every row (see sheet_parse.build_sheet_key). The long
+# Region header is not in here — it's grouping-only and never persisted.
+_REQUIRED_HEADERS = (
+    "Team Member Name",
+    "Opportunity Name",
+    "Amount (converted)",
+    "Close Date",
+    "Stage",
+    "Presales Stage",
+)
 
 
 def _is_skip_row(cells: dict) -> bool:
-    opp = (cells.get("opportunity_name") or "").strip()
-    if not opp:
+    """Drop subtotal/total rows and anything without an opportunity name.
+
+    The marker test is an EXACT match against each cell, not a substring scan
+    over the concatenated fields: that scan silently dropped any real
+    opportunity whose name merely contained "total" — "TotalEnergies", "Total
+    Rewards Platform" — which looks identical to the deal never having been
+    in the sheet.
+    """
+    if not (cells.get("opportunity_name") or "").strip():
         return True
-    joined = " ".join([
-        cells.get("rep_name") or "",
-        cells.get("team_role") or "",
-        cells.get("region") or "",
-        opp,
-    ]).lower()
-    return any(marker in joined for marker in _SKIP_MARKERS)
+    return any(
+        sheet_parse.is_marker_cell(cells.get(field))
+        for field in ("opportunity_name", *_GROUP_LEVELS)
+    )
 
 
 def _normalize_values(values: list[list[str]]) -> list[dict]:
@@ -100,8 +85,9 @@ def _normalize_values(values: list[list[str]]) -> list[dict]:
     if not values:
         return []
 
-    header = values[0]
-    col_keys = [_HEADER_MAP.get(h.strip()) for h in header]
+    col_keys = sheet_parse.map_header(
+        values[0], _HEADER_MAP, _REQUIRED_HEADERS, label="closed deals sync"
+    )
 
     rows: list[dict] = []
     fill = {level: "" for level in _GROUP_LEVELS}
@@ -122,38 +108,47 @@ def _normalize_values(values: list[list[str]]) -> list[dict]:
                 cells[key] = (val or "").strip()
 
         for level in _GROUP_LEVELS:
-            raw_val = cells.get(level, "")
-            if raw_val:
-                stripped = _strip_group_suffix(raw_val)
-                if stripped:
-                    for pending_row in pending[level]:
-                        pending_row[level] = stripped
-                    pending[level] = []
-                    fill[level] = stripped
-                    cells[level] = stripped
-                else:
-                    # Bare marker — this level's group is done; don't let it
-                    # bleed into whatever group comes next.
-                    fill[level] = ""
-                    pending[level] = []
-                    cells[level] = ""
-                if level == "rep_name":
-                    fill["team_role"] = ""
-                    fill["region"] = ""
-                    pending["team_role"] = []
-                    pending["region"] = []
-                elif level == "team_role":
-                    fill["region"] = ""
-                    pending["region"] = []
-            else:
+            label = sheet_parse.strip_group_label(cells.get(level, ""))
+            if label is None:
+                # Blank cell, or a bare Subtotal/Total marker. Previously a
+                # marker reset `fill`/`pending` here; it no longer does. A
+                # marker is row-shape noise that can land one column over from
+                # its own level, and resetting on it discards deal rows still
+                # buffered waiting for a late-arriving group name — the bug
+                # bf03fc7 fixed in tech_forecast_sync, which this tab's copy
+                # of the loop still had. Inherit the fill and keep buffering.
                 cells[level] = fill[level]
                 if not fill[level] and cells.get("opportunity_name"):
                     pending[level].append(cells)
+                continue
+
+            if label:
+                for pending_row in pending[level]:
+                    pending_row[level] = label
+                cells[level] = label
+            else:
+                # Bare "-" placeholder: a genuine "nobody assigned" boundary.
+                # This tab's stripper used to have no "-" case at all, so a
+                # literal "-" forward-filled into `rep_name` as though it were
+                # a person's name; load_rows now maps the resulting blank to
+                # "Unassigned" like any other unattributed row.
+                cells[level] = ""
+            pending[level] = []
+            fill[level] = cells[level]
+            # Cascade the reset downward: a new rep's (or role's) first row
+            # must never inherit the group below it from the previous one.
+            if level == "rep_name":
+                fill["team_role"] = fill["region"] = ""
+                pending["team_role"] = []
+                pending["region"] = []
+            elif level == "team_role":
+                fill["region"] = ""
+                pending["region"] = []
 
         if _is_skip_row(cells):
             continue
 
-        cells["tech_win"] = 1 if cells.get("presales_stage") == "6 - Technical Win" else 0
+        cells["tech_win"] = 1 if cells.get("presales_stage") == PRESALES_TECH_WIN else 0
         rows.append(cells)
 
     return rows
@@ -163,12 +158,10 @@ _FINGERPRINT_FIELDS = ("rep_name", "opportunity_name", "opportunity_id", "sales_
 
 
 def _row_fingerprint(row: dict, close_date, amount) -> str:
-    parts = [str(row.get(f) or "") for f in _FINGERPRINT_FIELDS]
-    parts += [close_date or "", "" if amount is None else str(amount)]
-    return hashlib.md5("|".join(parts).encode()).hexdigest()
+    return sheet_parse.row_fingerprint(row, _FINGERPRINT_FIELDS, (close_date, amount))
 
 
-def load_rows(db, rows: list[dict]) -> dict:
+def load_rows(db, rows: list[dict], allow_shrink: bool = False) -> dict:
     """Upsert already-normalized rows into the `closed_deals` table, skipping
     any row whose fingerprint matches what's already stored so an unchanged
     row is never rewritten."""
@@ -182,18 +175,35 @@ def load_rows(db, rows: list[dict]) -> dict:
         for r in c.execute("SELECT sheet_key, row_fingerprint FROM closed_deals"):
             existing_fingerprints[r["sheet_key"]] = r["row_fingerprint"]
 
-    seen_keys: list[str] = []
+    # A truncated fetch looks exactly like a shrunken sheet; refuse before we
+    # write anything rather than after we've deleted the missing rows.
+    sheet_parse.guard_row_shrink(
+        "closed deals sync", len(existing_fingerprints), len(rows), allow_shrink
+    )
+
+    seen_keys: set = set()
     changed_count = 0
     unchanged_count = 0
+    unparsed_amounts = 0
+    synced_at = utc_now_iso()
 
     with db.conn() as c:
         for row in rows:
             rep_name = row.get("rep_name") or "Unassigned"
             se_rep_id = se_rep_ids.get(rep_name)
-            close_date = _parse_close_date(row.get("close_date", ""))
-            amount = _parse_amount(row.get("amount", ""))
-            sheet_key = "|".join([rep_name, row.get("opportunity_name", ""), row.get("close_date", "")])
-            seen_keys.append(sheet_key)
+            close_date = sheet_parse.parse_date(row.get("close_date", ""))
+            amount = sheet_parse.parse_amount(row.get("amount", ""))
+            if sheet_parse.amount_unparsed(row.get("amount", ""), amount):
+                unparsed_amounts += 1
+            # Opportunity ID first, and the PARSED date in the fallback: a
+            # close date that merely slipped or got reformatted must not
+            # delete-and-reinsert the row. `closed_deals` carries no manual
+            # override columns, so nothing is lost when it does re-key — but
+            # the churn shows up as phantom synced/deleted counts.
+            sheet_key = sheet_parse.build_sheet_key(
+                row.get("opportunity_id"), rep_name, row.get("opportunity_name", ""), close_date or ""
+            )
+            seen_keys.add(sheet_key)
 
             fingerprint_row = dict(row, rep_name=rep_name)
             new_fingerprint = _row_fingerprint(fingerprint_row, close_date, amount)
@@ -207,30 +217,43 @@ def load_rows(db, rows: list[dict]) -> dict:
                 INSERT INTO closed_deals (
                     sheet_key, rep_name, se_rep_id, opportunity_name, opportunity_id, amount,
                     close_date, sales_stage, tech_win, row_fingerprint, last_synced_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(sheet_key) DO UPDATE SET
                     rep_name = excluded.rep_name, se_rep_id = excluded.se_rep_id,
+                    -- Updatable now that the key can be the opportunity ID:
+                    -- a renamed deal keeps its row instead of becoming one.
+                    opportunity_name = excluded.opportunity_name,
                     opportunity_id = excluded.opportunity_id, amount = excluded.amount,
                     close_date = excluded.close_date, sales_stage = excluded.sales_stage,
                     tech_win = excluded.tech_win, row_fingerprint = excluded.row_fingerprint,
-                    last_synced_at = datetime('now')
+                    last_synced_at = excluded.last_synced_at
             """, (
                 sheet_key, rep_name, se_rep_id, row.get("opportunity_name"), row.get("opportunity_id"),
                 amount, close_date, row.get("sales_stage"), row.get("tech_win", 0), new_fingerprint,
+                synced_at,
             ))
 
         deleted_count = 0
         if seen_keys:
-            to_delete = set(existing_fingerprints) - set(seen_keys)
-            deleted_count = len(to_delete)
-            placeholders = ",".join("?" * len(seen_keys))
-            c.execute(f"DELETE FROM closed_deals WHERE sheet_key NOT IN ({placeholders})", seen_keys)
+            deleted_count = sheet_parse.delete_keys(
+                c, "closed_deals", set(existing_fingerprints) - seen_keys
+            )
 
-    db.set_setting("closed_deals_last_synced_at", datetime.now().isoformat())
-    return {"synced": changed_count, "unchanged": unchanged_count, "deleted": deleted_count}
+        # Same transaction as the rows it describes — a failure after the data
+        # write must not leave the timestamp disagreeing with the data.
+        sheet_parse.write_setting(c, "closed_deals_last_synced_at", synced_at, synced_at)
+
+    return {
+        "synced": changed_count,
+        "unchanged": unchanged_count,
+        "deleted": deleted_count,
+        "unparsed_amounts": unparsed_amounts,
+    }
 
 
-def sync_closed_deals_from_values(db, values: list[list[str]]) -> dict:
+def sync_closed_deals_from_values(db, values: list[list[str]], allow_shrink: bool = False) -> dict:
     """MCP-assisted path: caller already fetched the tab's raw grid —
-    normalize and load it, no service account needed."""
-    return load_rows(db, _normalize_values(values))
+    normalize and load it, no service account needed. `allow_shrink` waives
+    the truncated-fetch guard for a tab that really did shrink (e.g. a fiscal
+    year rollover emptying it)."""
+    return load_rows(db, _normalize_values(values), allow_shrink)

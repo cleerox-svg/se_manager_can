@@ -15,28 +15,30 @@ agents), update docs, push. Delete this file when the task is done.
 ## Completed
 
 - Fast-forwarded branch to origin/main `7ba9407`; re-verified findings against it
-- Wrote shared contract modules: `constants.py` (stage strings),
-  `attribution.py` (single copy of the three-step SE precedence)
+- Shared contract modules: `constants.py`, `attribution.py`
+- Commit `33dd77e` (local, unpushed): db.py indexes + shared modules +
+  deleted tracked `_before_sync_dump.json`, gitignored `*_dump.json`
+- All four code agents landed: db.py, app.py+reviews.py, sync layer +
+  new `sheet_parse.py`, tech_forecast_report.py + top_items.py
+- Integration pass run by main thread — all 13 modules compile and import;
+  every route < 500 on a seeded synthetic DB; verified end to end:
+  overrides survive a re-key, shrink guard aborts without deleting,
+  "TotalEnergies" survives, `(1,234.00)` -> -1234.0, new reps `active=0`,
+  tech-win trend counts Lost but earns no revenue and does not double-count
+- Fixed a gap the integration pass found: `_json_body()` folded a
+  present-but-invalid body into `{}`, so a garbage POST to /api/top-items
+  saved an empty entry and reported success; now 400 (absent body still OK)
 
-## In flight (4 parallel agents, disjoint file ownership)
+## In flight
 
-- A: `db.py` — indexes (+4.6x measured on /api/reps), `deals.opportunity_id`,
-  `utc_now_iso()`, snapshot retention, schema_version guard
-- B: `app.py` + `reviews.py` — Closed/Won filters, NULL money guards, JSON
-  error handler + logging, input validation, use shared attribution SQL
-- C: sync modules + new `sheet_parse.py` — override preservation across
-  re-key, `notes_stale` fix, delete guard, "total" substring, cascade,
-  header validation, tag re-derivation, snapshot columns
-- D: `tech_forecast_report.py` + `top_items.py` — attribution in preread,
-  NULL money, tech-win double-count, overdue bucket, single-pass metrics
+- tests agent: `tests/` + pinned `requirements.txt`
+- docs agent: README.md, CLAUDE.md, `.claude/agents/*.md`
 
 ## Next steps
 
-1. Collect agent reports; resolve any cross-file contract mismatches
-   (`db.utc_now_iso` imported by C; `attribution.*` used by B and D)
-2. Wave 2: tests (`tests/`) + docs (README.md, CLAUDE.md) agents
-3. Full verification pass: compile, import, run test suite, build frontend
-4. Commit + push + draft PR
+1. Collect tests + docs agent reports; run the full suite myself
+2. Commit remaining work; push blocked on GitHub access (403)
+3. Delete this file once pushed
 
 ## Open decisions (asked of user)
 
