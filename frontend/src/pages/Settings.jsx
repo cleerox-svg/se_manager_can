@@ -32,8 +32,13 @@ export default function Settings() {
   }, []);
 
   async function updateRepCoverage(rep, field, value) {
-    await updateRep(rep.id, { [field]: value || null });
-    refetchReps();
+    try {
+      await updateRep(rep.id, { [field]: value || null });
+      toast('Saved', 'success');
+      refetchReps();
+    } catch (err) {
+      toast('Failed to save', 'error');
+    }
   }
 
   async function handleSyncSheets() {

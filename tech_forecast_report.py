@@ -415,25 +415,26 @@ def draft_sfdc_note(row):
     opp = row.get("opportunity_name") or "This opportunity"
 
     if row.get("presales_stage") == "6 - Technical Win":
-        return (
+        message = (
             f"Technical Win is confirmed. Commercial stage is "
             f"{_stage_label(row.get('sales_stage'))} — no further pre-sales "
             f"action needed unless something changes."
         )
+    else:
+        se_note = _latest_note_entry(row.get("se_manager_notes"))
+        presales_note = _latest_note_entry(row.get("pre_sales_notes"))
+        next_steps = (row.get("pre_sales_next_steps") or "").strip()
 
-    se_note = _latest_note_entry(row.get("se_manager_notes"))
-    if se_note:
-        return f"Latest SE Manager note: {se_note}"
+        if se_note:
+            message = f"Latest SE Manager note: {se_note}"
+        elif presales_note:
+            message = f"No SE Manager note logged yet. Latest Pre-Sales note: {presales_note}"
+        elif next_steps:
+            message = f"No notes logged yet — next step on file: {next_steps}"
+        else:
+            message = f"No notes logged yet for {opp} — worth a quick sync with the SE before the next forecast call."
 
-    presales_note = _latest_note_entry(row.get("pre_sales_notes"))
-    if presales_note:
-        return f"No SE Manager note logged yet. Latest Pre-Sales note: {presales_note}"
-
-    next_steps = (row.get("pre_sales_next_steps") or "").strip()
-    if next_steps:
-        return f"No notes logged yet — next step on file: {next_steps}"
-
-    return f"No notes logged yet for {opp} — worth a quick sync with the SE before the next forecast call."
+    return f"CL {date.today():%m/%d/%Y} : {message}"
 
 
 def build_sfdc_updates(deal_rows):

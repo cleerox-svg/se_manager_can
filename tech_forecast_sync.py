@@ -97,13 +97,31 @@ _OTHER_ORG_MANAGER_TAGS = {"greg rainbird": ("Auth0", "Enterprise/Strategic")}
 _GROUP_SUFFIX_RE = re.compile(r"\s*\(\d+\)\s*$")
 
 
-def _strip_group_suffix(raw: str) -> str:
+def _strip_group_suffix(raw: str) -> str | None:
     """Strip the trailing row-count, e.g. 'Nic Da Silva (11)' -> 'Nic Da
-    Silva'. A bare 'Subtotal'/'Total' group cell, or the sheet's bare '-'
-    placeholder for "no Lead SE assigned yet", collapses to '' so it never
-    forward-fills and poisons the next group's rows."""
+    Silva'. Returns one of three distinct signals, which the caller must
+    NOT treat as interchangeable:
+
+    - a real name/label, when one was present;
+    - '' for the sheet's bare '-' placeholder ("no Lead SE assigned yet") —
+      a genuine, intentional group boundary that should reset the
+      forward-fill for this level (and cascade down for lead_se_name);
+    - None for a bare 'Subtotal'/'Total' marker cell. This is a row-shape
+      artifact, not a real group boundary — the same merged/bled-through
+      header-cell text documented in sheets_sync.py's per-lead subtotal
+      row, where the marker can land one column over from its own level.
+      Collapsing this to '' (as '-' does) would make the caller reset
+      `fill`/`pending` on pure noise, silently and permanently orphaning
+      any deal rows still buffered waiting for a late-arriving group name
+      (see `_normalize_values`) — the exact bug behind Nova/MacEwan/etc.
+      showing up with a blank lead_se_name despite a real Lead SE in the
+      sheet. Callers must treat None like a blank cell: inherit the
+      current fill, keep buffering pending rows, never reset.
+    """
     stripped = _GROUP_SUFFIX_RE.sub("", raw).strip()
-    if stripped.lower() in _SKIP_MARKERS or stripped == "-":
+    if stripped.lower() in _SKIP_MARKERS:
+        return None
+    if stripped == "-":
         return ""
     return stripped
 
@@ -161,13 +179,19 @@ def _normalize_values(values: list[list[str]]) -> list[dict]:
 
         for level in _GROUP_LEVELS:
             raw_val = cells.get(level, "")
-            # A non-empty cell always marks a group boundary at this level —
-            # even the sheet's bare "-" (no Lead SE assigned) or a bare
-            # "Subtotal"/"Total" marker, both of which strip to "". Only a
-            # truly empty cell means "same as the row above."
             if raw_val:
                 stripped = _strip_group_suffix(raw_val)
-                if stripped:
+                if stripped is None:
+                    # Bare "Subtotal"/"Total" marker artifact — not a real
+                    # group boundary, just row-shape noise (the marker can
+                    # bleed into a column that isn't even its own level).
+                    # Treat exactly like a blank cell: keep whatever fill
+                    # is active and keep buffering, so a still-unresolved
+                    # pending group isn't discarded by this row.
+                    cells[level] = fill[level]
+                    if not fill[level] and cells.get("opportunity_name"):
+                        pending[level].append(cells)
+                elif stripped:
                     # A real name rode along on this cell — either a normal
                     # leading label, or a late name arriving on this group's
                     # own trailing Subtotal row. Either way, resolve whatever
@@ -177,15 +201,19 @@ def _normalize_values(values: list[list[str]]) -> list[dict]:
                     pending[level] = []
                     fill[level] = stripped
                     cells[level] = stripped
+                    if level == "lead_se_name":
+                        fill["forecast_status"] = ""
+                        pending["forecast_status"] = []
                 else:
-                    # Bare marker/"-" — this level's group is done; don't
-                    # let it bleed into whatever group comes next.
+                    # Genuine "-" boundary (no Lead SE assigned yet) — this
+                    # level's group is really done; don't let it bleed into
+                    # whatever group comes next.
                     fill[level] = ""
                     pending[level] = []
                     cells[level] = ""
-                if level == "lead_se_name":
-                    fill["forecast_status"] = ""
-                    pending["forecast_status"] = []
+                    if level == "lead_se_name":
+                        fill["forecast_status"] = ""
+                        pending["forecast_status"] = []
             else:
                 cells[level] = fill[level]
                 if not fill[level] and cells.get("opportunity_name"):
