@@ -7,6 +7,7 @@ rules silently reorder, the Monday message asks the wrong question about the
 wrong deal and nothing raises.
 """
 
+from datetime import date
 import json
 
 import pytest
@@ -316,3 +317,21 @@ def test_delta_is_none_rather_than_zero_when_there_is_no_history():
     caller has to be able to tell them apart."""
     assert report.quarter_arr_delta([], 250000) is None
     assert report.quarter_arr_delta([{"current_arr": 200000}], 250000) == 50000
+
+
+def test_delta_ignores_a_snapshot_written_by_todays_own_sync():
+    """The snapshot is captured after the sync writes its rows and upserts on
+    today's date, so on a sync day the newest entry already holds the post-sync
+    state. Comparing against it reports ~0 forever."""
+    today = date.today().isoformat()
+    history = [
+        {"snapshot_date": "2026-09-08", "current_arr": 900000},
+        {"snapshot_date": today, "current_arr": 1180000},
+    ]
+    assert report.quarter_arr_delta(history, 1180000) == 280000
+
+
+def test_delta_is_none_when_only_todays_snapshot_exists():
+    today = date.today().isoformat()
+    history = [{"snapshot_date": today, "current_arr": 1180000}]
+    assert report.quarter_arr_delta(history, 1180000) is None

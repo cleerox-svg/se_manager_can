@@ -759,16 +759,26 @@ def build_quarter_arr_history(snapshots, limit=8):
     return history[-limit:] if limit else history
 
 
-def quarter_arr_delta(history, current_arr, key="current_arr"):
-    """Change between the most recent snapshot and the live figure, or None.
+def quarter_arr_delta(history, current_arr, key="current_arr", today=None):
+    """Change between the live figure and the most recent snapshot from an
+    EARLIER day, or None.
+
+    Deliberately not `history[-1]`. The snapshot is captured after the sync
+    writes its rows and upserts on today's date, so on any day a sync ran the
+    newest entry already holds the post-sync state — comparing against it means
+    comparing the live figure with itself and always reporting ~0. Skipping
+    today's entry makes the number mean "what this sync moved", which is what
+    the tile claims.
 
     None means "no comparison available" and the caller must render nothing
     rather than a zero — an unchanged number and an unknown one look identical
     as `0` and mean opposite things.
     """
-    if not history:
+    today = today or date.today().isoformat()
+    earlier = [h for h in history if h.get("snapshot_date") != today]
+    if not earlier:
         return None
-    prior = history[-1].get(key)
+    prior = earlier[-1].get(key)
     if prior is None:
         return None
     return (current_arr or 0) - prior
