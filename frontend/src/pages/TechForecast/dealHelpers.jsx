@@ -54,7 +54,14 @@ export function DealFlags({ d }) {
   // evaluates to 0 and React renders the character.
   return (
     <div className="pill-row">
-      {!!d.needs_lead_se && <span className="badge badge-red">No Lead SE</span>}
+      {!!d.lead_se_unmatched && (
+        <span className="badge badge-red" title={`The sheet says "${d.lead_se_name}", which doesn't match anyone on the Team page`}>
+          SE not on roster: {d.lead_se_name}
+        </span>
+      )}
+      {!!d.needs_lead_se && !d.lead_se_unmatched && (
+        <span className="badge badge-red">No Lead SE</span>
+      )}
       {!!d.notes_stale && <span className="badge badge-amber">{staleLabel(d)}</span>}
       {!d.pre_sales_next_steps && <span className="badge badge-muted">No TW strategy</span>}
     </div>

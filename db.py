@@ -13,7 +13,7 @@ PRAGMA temp_store=MEMORY;
 
 # Bumped when a one-time cleanup is added to `_one_time_cleanups`. Everything
 # else in `_migrate` is idempotent CREATE/ALTER probing and stays unversioned.
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 
 
 def utc_now_iso() -> str:
@@ -185,6 +185,14 @@ class Database:
             # Abandoned Clari import experiment — the table was never read back.
             c.execute("DROP TABLE IF EXISTS clari_ae_snapshots")
 
+        if version < 2:
+            # The attribution match became lower(trim(name)) so a stray space on
+            # a hand-typed sheet cell stops silently unattributing a deal's ARR.
+            # An index is matched by its exact expression, so the lower(name) one
+            # no longer serves that predicate — and CREATE INDEX IF NOT EXISTS
+            # won't redefine an index that already exists under the same name.
+            c.execute("DROP INDEX IF EXISTS idx_se_reps_name_lower")
+
         c.execute(
             "INSERT INTO settings (key, value, updated_at) "
             "VALUES ('schema_version', ?, datetime('now')) "
@@ -342,11 +350,13 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_deals_opp_name
                     ON deals(opportunity_name, id, se_rep_id);
 
-                -- Step 2 of the same precedence matches on lower(name), which
-                -- the UNIQUE index on se_reps.name can't serve; without this
-                -- expression index every tech_forecast row re-scans se_reps.
-                CREATE INDEX IF NOT EXISTS idx_se_reps_name_lower
-                    ON se_reps(lower(name));
+                -- Step 2 of the same precedence matches on lower(trim(name)),
+                -- which the UNIQUE index on se_reps.name can't serve; without
+                -- this expression index every tech_forecast row re-scans
+                -- se_reps. The expression must match attribution.py's predicate
+                -- character for character or SQLite silently ignores the index.
+                CREATE INDEX IF NOT EXISTS idx_se_reps_name_norm
+                    ON se_reps(lower(trim(name)));
 
                 -- Matches /api/reps/<id>/slack's ORDER BY posted_at DESC, so
                 -- the 200-row page comes off the index with no temp B-tree.

@@ -335,6 +335,12 @@ def tech_forecast():
         d["effective_se_rep_id"] = se_id
         d["effective_se_name"] = reps_by_id.get(se_id, "Unassigned") if se_id else "Unassigned"
         d["needs_lead_se"] = not se_id
+        # A sheet that names someone we can't resolve is a different problem
+        # from a sheet that names nobody, and it used to render as the same
+        # "No Lead SE" chip while the Needs Lead SE card — which keys off the
+        # raw name — didn't list the deal at all. One is "go assign an SE",
+        # the other is "the spelling doesn't match the roster".
+        d["lead_se_unmatched"] = bool(not se_id and (d["lead_se_name"] or "").strip())
         d["opportunity_url"] = opportunity_url(d["opportunity_id"])
 
         # Both of these live in tech_forecast_report so this route and the

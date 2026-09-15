@@ -9,6 +9,7 @@ from datetime import date, datetime, timedelta, timezone
 import pytest
 
 from conftest import TF_HEADER, _close, add_rep, grid
+import db as db_module
 from db import Database
 
 import tech_forecast_sync
@@ -36,7 +37,7 @@ def test_init_is_idempotent_and_keeps_existing_data(tmp_path):
     with database.conn() as c:
         assert c.execute("SELECT COUNT(*) AS n FROM se_reps").fetchone()["n"] == 1
         assert c.execute("SELECT name FROM se_reps WHERE id = ?", (rep_id,)).fetchone()["name"] == "Amara Osei"
-    assert database.get_setting("schema_version") == "1"
+    assert database.get_setting("schema_version") == str(db_module._SCHEMA_VERSION)
     _close(database)
 
 
@@ -51,7 +52,7 @@ def test_init_creates_every_table_the_app_queries(db):
 def test_init_creates_the_attribution_and_lookup_indexes(db):
     with db.conn() as c:
         names = {r["name"] for r in c.execute("SELECT name FROM sqlite_master WHERE type='index'")}
-    assert {"idx_deals_opp_name", "idx_se_reps_name_lower", "idx_closed_deals_tech_win"} <= names
+    assert {"idx_deals_opp_name", "idx_se_reps_name_norm", "idx_closed_deals_tech_win"} <= names
 
 
 def test_a_second_process_opening_the_same_file_does_not_re_run_the_destructive_cleanup(tmp_path):
@@ -157,7 +158,7 @@ def test_migrating_a_legacy_database_preserves_its_rows(legacy_db):
 def test_the_abandoned_clari_table_is_dropped_once_on_upgrade(legacy_db):
     legacy_db.init()
     assert "clari_ae_snapshots" not in tables(legacy_db)
-    assert legacy_db.get_setting("schema_version") == "1"
+    assert legacy_db.get_setting("schema_version") == str(db_module._SCHEMA_VERSION)
 
 
 def test_a_migrated_legacy_database_can_run_a_real_sync(legacy_db):
@@ -301,3 +302,27 @@ def test_a_helper_opening_its_own_scope_is_safe_inside_a_transaction(db):
         names = {r["name"] for r in c.execute("SELECT name FROM se_reps")}
     assert "Rep" in names
     assert db.get_setting("last_synced_at") == "2026-09-15T00:00:00+00:00"
+
+
+def test_the_superseded_name_index_is_dropped_on_upgrade(tmp_path):
+    """The attribution match became lower(trim(name)), and SQLite matches an
+    index by its exact expression — so the old lower(name) index no longer
+    serves it. CREATE INDEX IF NOT EXISTS won't redefine an existing name, so
+    the drop has to be an explicit one-time cleanup."""
+    path = tmp_path / "legacy.db"
+    database = Database(str(path))
+    database.init()
+    with database.conn() as c:
+        c.execute("DROP INDEX IF EXISTS idx_se_reps_name_norm")
+        c.execute("CREATE INDEX idx_se_reps_name_lower ON se_reps(lower(name))")
+        c.execute("UPDATE settings SET value = '1' WHERE key = 'schema_version'")
+    _close(database)
+
+    upgraded = Database(str(path))
+    upgraded.init()
+    with upgraded.conn() as c:
+        names = {r["name"] for r in c.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'index'")}
+    assert "idx_se_reps_name_lower" not in names
+    assert "idx_se_reps_name_norm" in names
+    _close(upgraded)

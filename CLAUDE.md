@@ -165,6 +165,21 @@ match > opportunity_name→`deals.se_rep_id` fallback. Same history as above:
 `list_reps`'s `tech_forecast_arr` subquery was hand-written with step 3 only
 (fixed 2026-09-11), so reps attributed via steps 1-2 showed $0 despite real
 forecasted ARR and the column's total didn't match the Tech Forecast page.
+Step 2 matches `lower(trim(...))` on both sides, not bare `lower(...)`. The
+sheet is hand-maintained and a single trailing space on a Lead SE cell was
+enough to drop the match — which surfaces not as an error but as the deal
+reporting "Unassigned" while its ARR quietly leaves that rep's total.
+`db.py`'s `idx_se_reps_name_norm` indexes the same `lower(trim(name))`
+expression: SQLite matches an index by its exact expression, so changing one
+without the other silently drops back to a full scan per row. Anything beyond
+whitespace ("NicDaSilva", "Da Silva, Nic") is deliberately NOT matched —
+guessing risks booking revenue against the wrong person — and instead comes
+back as `lead_se_unmatched` on the deal, which the UI shows as "SE not on
+roster: <name>". That is a different problem from `needs_lead_se` (the sheet
+names nobody) and the two must stay distinguishable: they used to render as
+the same chip while the Needs Lead SE card, which keys off the raw name,
+listed only one of them.
+
 Don't re-write the COALESCE at a new call site — interpolate the constant
 (it takes no caller input, and `db.py` carries the two indexes that keep it
 fast: `idx_deals_opp_name` and the `lower(name)` expression index on

@@ -8,9 +8,11 @@
    query site — a rep attributed via step 1 or 2 reported $0 once already.
 """
 
+import pytest
 import reviews
 import tech_forecast_report as report
 import top_items
+from attribution import EFFECTIVE_SE_ID_SQL
 from conftest import (IN_CURRENT_FQ, add_closed_deal, add_deal, add_rep,
                       add_tf_deal)
 from constants import STAGE_CLOSED_WON
@@ -318,3 +320,54 @@ def test_effective_se_display_name_falls_back_to_the_raw_sheet_name(db):
     assert report.effective_se_display_name(
         {"effective_se_name": None, "lead_se_name": "Mary Greenlee"}) == "Mary Greenlee"
     assert report.effective_se_display_name({}) == ""
+
+
+# ── whitespace tolerance in the Lead SE name match ───────────────────────────
+# The sheet is hand-maintained. A trailing space on a Lead SE cell used to drop
+# the match, which surfaced as the deal reporting "Unassigned" and its ARR
+# vanishing from that rep's total — no error, no warning.
+
+@pytest.mark.parametrize("sheet_spelling", [
+    "Nic Da Silva",     # exact
+    "nic da silva",     # case only
+    "Nic Da Silva ",    # trailing space
+    " Nic Da Silva",    # leading space
+])
+def test_lead_se_name_matches_despite_surrounding_whitespace(db, sheet_spelling):
+    rep_id = add_rep(db, "Nic Da Silva")
+    add_tf_deal(db, sheet_key="k1", opportunity_name="Acme",
+                lead_se_name=sheet_spelling, amount=100000)
+    with db.conn() as c:
+        got = c.execute(
+            f"SELECT {EFFECTIVE_SE_ID_SQL} AS eff FROM tech_forecast_deals tf"
+        ).fetchone()["eff"]
+    assert got == rep_id
+
+
+@pytest.mark.parametrize("sheet_spelling", ["NicDaSilva", "Da Silva, Nic", "Nic Da Silva Jr"])
+def test_a_genuinely_different_spelling_is_not_guessed_at(db, sheet_spelling):
+    """Attributing revenue to the wrong person is worse than not attributing
+    it. These surface through lead_se_unmatched instead."""
+    add_rep(db, "Nic Da Silva")
+    add_tf_deal(db, sheet_key="k1", opportunity_name="Acme",
+                lead_se_name=sheet_spelling, amount=100000)
+    with db.conn() as c:
+        got = c.execute(
+            f"SELECT {EFFECTIVE_SE_ID_SQL} AS eff FROM tech_forecast_deals tf"
+        ).fetchone()["eff"]
+    assert got is None
+
+
+def test_unmatched_name_is_reported_separately_from_no_name(api):
+    """They rendered as the same "No Lead SE" chip while the Needs Lead SE card,
+    which keys off the raw name, listed only one of them."""
+    add_rep(api.db, "Nic Da Silva")
+    add_tf_deal(api.db, sheet_key="a", opportunity_name="Unmatched",
+                lead_se_name="NicDaSilva", amount=100000, close_date="2026-10-31")
+    add_tf_deal(api.db, sheet_key="b", opportunity_name="NoName",
+                lead_se_name="", amount=100000, close_date="2026-10-31")
+    body = api.get("/api/tech-forecast").get_json()
+    deals = {d["opportunity_name"]: d for d in body["deals"]}
+    assert deals["Unmatched"]["lead_se_unmatched"] is True
+    assert deals["NoName"]["lead_se_unmatched"] is False
+    assert deals["NoName"]["needs_lead_se"] is True
