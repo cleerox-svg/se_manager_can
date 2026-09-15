@@ -271,6 +271,10 @@ def api(tmp_path, monkeypatch, frozen_quarter):
 
     import app as app_module
 
+    # Belt and braces: if DATABASE_PATH ever stopped being read at import time,
+    # this fixture would silently start mutating the developer's real database.
+    assert app_module.db.path.startswith(str(tmp_path)), app_module.db.path
+
     app_module.app.config["TESTING"] = True
     ids = seed_reference_data(app_module.db)
     client = app_module.app.test_client()
