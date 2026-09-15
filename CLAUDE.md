@@ -237,15 +237,11 @@ this note is meant to be pasted straight into Salesforce.
 
 ## Git workflow
 
-**No GitHub by default** — work stays local only. Local `git commit` is fine;
-do not create a remote repo or run `git push` unless the user explicitly says
-otherwise for that specific task.
-
-Exception on record: the React migration (see `REACT_MIGRATION_PLAN.md`,
-Phases 0-6) was explicitly authorized by Claude Leroux on 2026-09-10 to push
-each phase's commit to `origin/main` as it completed. That authorization was
-scoped to this migration only — it does not extend to unrelated future work.
-Always confirm before pushing again outside of an explicitly authorized task.
+Per Claude Leroux (2026-09-15): keep `origin/main` always up to date, not
+just local. Commit and push after any meaningful change — don't batch
+unpushed commits or wait for the user to ask. This supersedes the prior
+"no GitHub by default" rule (which had scoped push authorization to the
+React migration only); that scoping no longer applies.
 
 ## Sub-agents
 
