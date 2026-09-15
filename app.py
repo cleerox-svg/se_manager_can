@@ -8,6 +8,7 @@ import reviews
 import sheets_sync
 import slack_sync
 import tech_forecast_report as report
+import top_items
 from db import Database
 from salesforce_links import opportunity_url
 
@@ -195,7 +196,7 @@ def tech_forecast():
         d["attributed_se_name"] = reps_by_id.get(d["attributed_se_id"])
         d["effective_se_rep_id"] = effective_se_id
         d["effective_se_name"] = reps_by_id.get(effective_se_id, "Unassigned") if effective_se_id else "Unassigned"
-        d["needs_lead_se"] = not d["lead_se_name"]
+        d["needs_lead_se"] = not effective_se_id
         d["opportunity_url"] = opportunity_url(d["opportunity_id"])
 
         # quarter_bucket() only distinguishes current/next/later — "later" also
@@ -470,6 +471,28 @@ def save_review(rep_id, period):
                 content = excluded.content, status = excluded.status, updated_at = datetime('now')
         """, (rep_id, period, content, status))
     return jsonify({"ok": True})
+
+
+@app.route("/api/top-items/latest")
+def top_items_latest():
+    return jsonify(top_items.get_latest(db) or {})
+
+
+@app.route("/api/top-items/history")
+def top_items_history():
+    return jsonify(top_items.get_history(db))
+
+
+@app.route("/api/top-items/scaffold", methods=["POST"])
+def top_items_scaffold():
+    return jsonify({"scaffold": top_items.build_scaffold(db)})
+
+
+@app.route("/api/top-items", methods=["POST"])
+def top_items_save():
+    data = request.get_json(force=True)
+    content = data.get("content", "")
+    return jsonify(top_items.save_entry(db, content))
 
 
 if __name__ == "__main__":

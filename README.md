@@ -6,6 +6,24 @@ on [NaughtRFP](../rfp-responder)'s stack and Okta dark-theme UI.
 
 ## What it does
 
+- **Actions** — a card-grid launcher (`action-card-grid`, one `action-card`
+  per action with an icon, title, and description) that opens a focused
+  module in place when clicked, rather than listing every action's UI at
+  once. Three cards today: **Team Prep Message** (Slack-ready Monday-call
+  draft from the week's forecast), **SFDC Updates** (proposed SE Manager
+  note per open opportunity, current + next quarter), and **Top Items**
+  (drafts the manager's weekly Top Items summary — Hiring, Customer
+  Meetings/Win Labs, Canadian Public Sector, and Other/Technical Wins —
+  matching the format of the team's shared Top Items Google Doc). Top
+  Items' "Generate" button scaffolds a starter draft (Other/Technical Wins
+  auto-filled from `closed_deals` closed in the last 7 days; the other
+  three sections are editable placeholders), "Save" upserts it to
+  `top_items_entries` keyed by today's date, and "Copy to clipboard" pastes
+  it straight into the shared doc. This is a manual weekly action, not an
+  automated cron — the Flask app has no Calendar/Gmail/Slack
+  service-account credentials, so full email/calendar/Slack alignment
+  needs a live Claude Code session's MCP tools, same as the sheet/Slack
+  sync pattern above.
 - **Dashboard** — team-wide rollup sourced from Technical Forecast data, no
   individual SE names shown at top level. Three stat cards (closed deals,
   % closed won, % technical win, from `/api/closed-deals/summary`'s
@@ -153,7 +171,10 @@ on [NaughtRFP](../rfp-responder)'s stack and Okta dark-theme UI.
   as the discussion-question heuristic above) that prefers a Technical Win
   confirmation, then the newest SE Manager Notes entry, then the newest
   Pre-Sales Notes entry, then the raw Pre-Sales Next Steps text, then a
-  generic fallback. Same editable-textarea-plus-Copy-button UX as Team Prep
+  generic fallback. Every drafted note is prefixed with `CL MM/DD/YYYY : `
+  (today's date, computed at call time, with a space before the colon) to
+  match the initials+date convention already used in the sheet's hand-typed
+  note history. Same editable-textarea-plus-Copy-button UX as Team Prep
   Message.
 - **SE attribution (Team ↔ Technical Forecast)** — the sheet now carries
   real Lead SE attribution natively (`lead_se_name`), so `app.py` resolves
@@ -276,6 +297,12 @@ Data gets in via one of two paths — see [SETUP.md](SETUP.md):
 - `reviews` — drafted/edited review content, one row per (rep, period),
   `status` of `draft` or `final` — settable from either the Team page's
   inline editor or the Person page's Review tab.
+- `top_items_entries` — one row per weekly Top Items draft, keyed by
+  `entry_date` (upserted, so re-saving the same day overwrites rather than
+  duplicating). `top_items.py` (mirrors `tech_forecast_report.py` — pure
+  logic, no Flask dependency) builds the scaffold and backs
+  `GET /api/top-items/latest`, `GET /api/top-items/history`,
+  `POST /api/top-items/scaffold`, and `POST /api/top-items`.
 
 ## Sub-agents
 

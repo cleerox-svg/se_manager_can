@@ -95,3 +95,8 @@ export function getDashboardFunnel() {
 export function getDashboardTechWinTrend() {
   return API.get('/api/dashboard/tech-win-trend');
 }
+
+export const getTopItemsLatest = () => API.get('/api/top-items/latest');
+export const getTopItemsHistory = () => API.get('/api/top-items/history');
+export const generateTopItemsScaffold = () => API.post('/api/top-items/scaffold');
+export const saveTopItems = (content) => API.post('/api/top-items', { content });

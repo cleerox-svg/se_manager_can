@@ -221,6 +221,15 @@ class Database:
                     UNIQUE(se_rep_id, period)
                 );
 
+                CREATE TABLE IF NOT EXISTS top_items_entries (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    entry_date TEXT UNIQUE,
+                    content    TEXT,
+                    status     TEXT DEFAULT 'draft',
+                    created_at TEXT DEFAULT (datetime('now')),
+                    updated_at TEXT DEFAULT (datetime('now'))
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_deals_se_rep ON deals(se_rep_id);
                 CREATE INDEX IF NOT EXISTS idx_deals_quarter ON deals(quarter);
                 CREATE INDEX IF NOT EXISTS idx_slack_notes_se_rep ON slack_notes(se_rep_id);

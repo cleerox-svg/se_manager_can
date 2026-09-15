@@ -222,6 +222,28 @@ textarea { width: 100%; min-height: 320px; line-height: 1.5; resize: vertical; }
 .toast.error { border-color: var(--red); color: var(--red); }
 .toast.success { border-color: var(--green); color: var(--green); }
 
+/* ── Action card grid (Actions page launcher) ───────────────────────────── */
+.action-card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+.action-card {
+  display: flex; flex-direction: column; gap: 10px; text-align: left;
+  background: var(--card-grad); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  box-shadow: var(--depth-raised); padding: 20px; cursor: pointer;
+  color: var(--text-primary); font-family: inherit;
+  transition: var(--transition), box-shadow var(--transition), transform var(--transition);
+}
+.action-card:hover { background: var(--bg-card-hover); border-color: var(--border-active); box-shadow: var(--depth-raised-hover); }
+.action-card:active { box-shadow: var(--depth-inset); transform: translateY(1px); }
+.action-card-icon {
+  display: flex; align-items: center; justify-content: center;
+  width: 40px; height: 40px; border-radius: 10px;
+  background: var(--okta-blue-dim); color: var(--okta-blue-lt);
+  box-shadow: inset 0 0 0 1px rgba(0,125,193,.3);
+}
+.action-card-title { font-size: .94rem; font-weight: 600; }
+.action-card-desc { font-size: .8rem; color: var(--text-secondary); line-height: 1.4; }
+
+.module-back-btn { margin-bottom: 14px; }
+
 /* ── SFDC Updates ────────────────────────────────────────────────────────── */
 .sfdc-update-row { padding: 14px 0; border-bottom: 1px solid var(--border); }
 .sfdc-update-row:last-child { border-bottom: none; }
