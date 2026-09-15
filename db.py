@@ -90,6 +90,14 @@ class Database:
             c.execute("ALTER TABLE tech_forecast_deals ADD COLUMN lead_se_name TEXT")
         if "pre_sales_next_steps" not in cols:
             c.execute("ALTER TABLE tech_forecast_deals ADD COLUMN pre_sales_next_steps TEXT")
+        # Both staleness columns shipped in CREATE TABLE only, with no ALTER
+        # probe, so a database predating them never gained them and every sync
+        # died on `no such column: notes_stale`. Fresh DBs were fine, which is
+        # why it stayed hidden.
+        if "notes_prev_sync" not in cols:
+            c.execute("ALTER TABLE tech_forecast_deals ADD COLUMN notes_prev_sync TEXT")
+        if "notes_stale" not in cols:
+            c.execute("ALTER TABLE tech_forecast_deals ADD COLUMN notes_stale INTEGER DEFAULT 0")
         if "opportunity_id" not in cols:
             c.execute("ALTER TABLE tech_forecast_deals ADD COLUMN opportunity_id TEXT")
         if "row_fingerprint" not in cols:
