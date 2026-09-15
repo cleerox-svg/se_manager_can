@@ -46,9 +46,12 @@ on [NaughtRFP](../rfp-responder)'s stack and Okta dark-theme UI.
   track here. A "Sync now" button next to Present mode copies a ready-made
   sync request to the clipboard for pasting into a Claude Code chat (no
   live in-app fetch —
-  see "Data model" below). Five sections: Macro View (stat-grid — total tech forecast ARR,
-  Forecasted Risk count, stale-notes count, and Needs Lead SE
-  count/$), Look Back (recent technical wins, blending closed `tech_win`
+  see "Data model" below). Five sections: Macro View (stat-grid — Current
+  Quarter ARR and Next Quarter ARR (each labeled with its Okta fiscal
+  quarter, e.g. "FY26-Q3", replacing the old single opaque Total Tech
+  Forecast ARR figure), Forecasted Risk count, stale-notes count, and Needs
+  Lead SE count/$ — all 5 cards are clickable, scrolling to (and
+  auto-expanding, if collapsed) the matching section below), Look Back (recent technical wins, blending closed `tech_win`
   deals with open deals already at "6 - Technical Win", grouped by Okta
   fiscal quarter — most recent first, FY starts Feb 1, see CLAUDE.md — then
   by SE, then by amount within each SE. Each quarter and each SE sub-group is
@@ -58,8 +61,19 @@ on [NaughtRFP](../rfp-responder)'s stack and Okta dark-theme UI.
   attributed gets a "No SE" badge on its subheader; individual still-open
   wins with no fresh SE update since the last sync get a per-row
   "No new notes" badge — closed wins never get that flag since the sheet's
-  closed-won export has no notes columns at all), Look Forward &
-  Inspect (open technical pipeline table — each row shows Stage, Presales
+  closed-won export has no notes columns at all. Each row's Status badge
+  ("Closed win" vs. "Tech win (open)") is driven by `sales_stage ===
+  '10 - Closed/Won'`, not by which table the row came from — a row can come
+  from either `closed_deals` or `tech_forecast_deals` and still need the
+  "Tech win (open)" badge if it hasn't actually closed won yet), Look Forward &
+  Inspect (open technical pipeline table, grouped into collapsible sections —
+  same `<details class="flyout">` pattern as Look Back — by target Technical
+  Win date's fiscal-quarter bucket, in fixed order Overdue → Current Quarter →
+  Next Quarter → Later/Unscheduled; within each group, deals are sorted by
+  Amount (ARR) descending. Each group's summary line shows the bucket label,
+  deal count, and dollar total, same as Look Back's group headers. Each row
+  shows Stage (now a colored badge — green for Closed/Won, red for
+  Closed/Lost, blue for still-open — instead of plain text), Presales
   Stage, Forecast Status, Tech Win Date, Amount, an SE dropdown (with a
   "No Lead SE (sheet)" badge when the sheet itself has no Lead SE set),
   Flags, and all three of Pre-Sales Notes, SE Manager Notes, and Pre-Sales
@@ -106,7 +120,19 @@ on [NaughtRFP](../rfp-responder)'s stack and Okta dark-theme UI.
   `search.messages`-scoped only) and no LLM call yet (no `LITELLM_API_KEY`
   configured), so the draft is built with plain string templating in
   `tech_forecast_report.build_slack_draft` rather than an AI prompt; swapping
-  in an LLM polish pass later only needs to change that one function.
+  in an LLM polish pass later only needs to change that one function. A
+  second card, "SFDC Updates," drafts a per-opportunity note ready to paste
+  into Salesforce: `GET /api/tech-forecast/sfdc-updates` returns every
+  commercially-open deal (`sales_stage != "10 - Closed/Won"`) in the current
+  or next fiscal quarter, each with its opportunity name (doubling as the
+  account label, since `tech_forecast_deals` has no true `account_name`
+  field), Salesforce link, and a rule-based proposed note
+  (`tech_forecast_report.draft_sfdc_note` — same no-LLM-configured reasoning
+  as the discussion-question heuristic above) that prefers a Technical Win
+  confirmation, then the newest SE Manager Notes entry, then the newest
+  Pre-Sales Notes entry, then the raw Pre-Sales Next Steps text, then a
+  generic fallback. Same editable-textarea-plus-Copy-button UX as Team Prep
+  Message.
 - **SE attribution (Team ↔ Technical Forecast)** — the sheet now carries
   real Lead SE attribution natively (`lead_se_name`), so `app.py` resolves
   each deal's effective SE with this precedence: (1) an explicit manager
@@ -189,7 +215,12 @@ Data gets in via one of two paths — see [SETUP.md](SETUP.md):
   aggregates both into win-rate percentages — team-wide and per-rep —
   rendered as `% Closed Won` / `% Tech Win` bars on the Technical Forecast
   page; both percentages vary meaningfully by rep since the tab mixes Won and
-  Lost outcomes.
+  Lost outcomes. The team-wide block shows two figures side by side: the
+  all-time rate across the whole sheet, and a second rate scoped to deals
+  closed within the current Okta fiscal quarter (`team_current_quarter`,
+  labeled with that quarter, e.g. "FY26-Q3") — added since the all-time
+  figure alone reads as "recent" performance when it actually spans the
+  whole season. Per-rep breakdown stays all-time only.
 - `tech_forecast_deals` — synced from the Team Tracking Sheet's Technical
   Forecast tab, one row per open deal in the technical-win pipeline
   (`lead_se_name` straight from the sheet, Presales Stage — a flat per-deal
@@ -222,21 +253,31 @@ Data gets in via one of two paths — see [SETUP.md](SETUP.md):
 
 ## Sub-agents
 
-Three Claude Code custom agents live in `.claude/agents/` and auto-load in
+Four Claude Code custom agents live in `.claude/agents/` and auto-load in
 every Claude Code session opened against this project — "sync tech
-forecast", "sync deals", and "sync Slack" requests are handled by the
-matching function-specific agent rather than ad-hoc instructions each time:
+forecast", "sync deals", "sync closed deals", and "sync Slack" requests are
+handled by the matching function-specific agent rather than ad-hoc
+instructions each time:
 
 | Agent | File | Trigger |
 |---|---|---|
 | `tech-forecast-sync` | `.claude/agents/tech-forecast-sync.md` | "sync tech forecast", "refresh tech forecast" |
 | `deals-sync` | `.claude/agents/deals-sync.md` | "sync deals", "refresh pipeline" |
+| `closed-deals-sync` | `.claude/agents/closed-deals-sync.md` | "sync closed deals", "refresh closed deals" |
 | `slack-sync` | `.claude/agents/slack-sync.md` | "sync Slack", "refresh Slack notes" |
 
 Each agent runs the full MCP-assisted sync flow for its data type: confirm
 the live tab name via gid, fetch data, write a temp JSON payload, run
 `mcp_ingest.py` through `venv/Scripts/python.exe`, delete the temp file,
 report the result (including the synced/unchanged/deleted counts above).
+
+The `/sync-se-hub` skill (`.claude/skills/sync-se-hub/SKILL.md`) is the
+recommended way to trigger a sync — `/sync-se-hub` or "sync everything" runs
+all four agents in parallel, or name a single kind ("sync deals", "sync
+closed deals", "sync tech forecast", "sync Slack") to run just that one.
+Asking Claude in prose without the slash command still works, since it
+dispatches to the same agents — the skill just standardizes the parallel
+fan-out and reporting.
 
 ## Conventions
 

@@ -196,6 +196,21 @@ def tech_forecast():
         d["effective_se_name"] = reps_by_id.get(effective_se_id, "Unassigned") if effective_se_id else "Unassigned"
         d["needs_lead_se"] = not d["lead_se_name"]
         d["opportunity_url"] = opportunity_url(d["opportunity_id"])
+
+        # quarter_bucket() only distinguishes current/next/later — "later" also
+        # catches deals whose target date already passed. Add "overdue" as a
+        # local refinement on top, without touching quarter_bucket() itself
+        # (it also powers build_top_deals/build_sfdc_updates/build_slack_draft).
+        target_tw_date = d["technical_win_date"] or d["close_date"]
+        bucket = report.quarter_bucket(target_tw_date)
+        if bucket == "later" and target_tw_date:
+            target_key = report.fiscal_quarter_sort_key(report.fiscal_quarter(target_tw_date))
+            current_key = report.fiscal_quarter_sort_key(report.current_fiscal_quarter())
+            if target_key < current_key:
+                bucket = "overdue"
+        d["target_tw_date"] = target_tw_date
+        d["quarter_bucket"] = bucket
+
         deals.append(d)
 
     recent_wins = [
@@ -220,10 +235,21 @@ def tech_forecast():
         )
     )
 
+    current_label = report.current_fiscal_quarter()
+    next_label = report.quarter_label(
+        report._offset_quarter_key(report.fiscal_quarter_sort_key(current_label), 1)
+    )
+    current_arr = sum(d["amount"] or 0 for d in deals if d["quarter_bucket"] == "current")
+    next_arr = sum(d["amount"] or 0 for d in deals if d["quarter_bucket"] == "next")
+
     return jsonify({
         "deals": deals,
         "recent_wins": recent_wins,
         "last_synced_at": db.get_setting("tech_forecast_last_synced_at"),
+        "current_quarter_arr": current_arr,
+        "current_quarter_label": current_label,
+        "next_quarter_arr": next_arr,
+        "next_quarter_label": next_label,
     })
 
 
@@ -237,6 +263,13 @@ def tech_forecast_preread():
 def tech_forecast_draft():
     preread = report.build_preread(db)
     return jsonify({"draft": report.build_slack_draft(preread)})
+
+
+@app.route("/api/tech-forecast/sfdc-updates")
+def tech_forecast_sfdc_updates():
+    with db.conn() as c:
+        deal_rows = [dict(r) for r in c.execute("SELECT * FROM tech_forecast_deals").fetchall()]
+    return jsonify(report.build_sfdc_updates(deal_rows))
 
 
 # ── Dashboard (team-wide, SE-name-free rollups) ─────────────────────────
@@ -287,6 +320,11 @@ def closed_deals_summary():
     def pct(numerator, total):
         return round(numerator / total, 3) if total else 0.0
 
+    current_fq_label = report.current_fiscal_quarter()
+    current_fq_start, current_fq_end = report.fiscal_quarter_date_range(
+        report.fiscal_quarter_sort_key(current_fq_label)
+    )
+
     with db.conn() as c:
         team_row = c.execute("""
             SELECT
@@ -296,6 +334,16 @@ def closed_deals_summary():
             FROM closed_deals
             WHERE se_rep_id IS NOT NULL
         """).fetchone()
+
+        team_current_quarter_row = c.execute("""
+            SELECT
+                COUNT(*) AS total,
+                SUM(CASE WHEN sales_stage = '10 - Closed/Won' THEN 1 ELSE 0 END) AS closed_won,
+                SUM(CASE WHEN tech_win = 1 THEN 1 ELSE 0 END) AS tech_win
+            FROM closed_deals
+            WHERE se_rep_id IS NOT NULL
+                AND close_date >= ? AND close_date < ?
+        """, (current_fq_start, current_fq_end)).fetchone()
 
         rep_rows = c.execute("""
             SELECT r.id AS rep_id, r.name AS rep_name,
@@ -334,7 +382,19 @@ def closed_deals_summary():
             "tech_win_pct": pct(tech_win, total),
         })
 
-    return jsonify({"team": team, "reps": reps})
+    cq_total = team_current_quarter_row["total"] or 0
+    cq_closed_won = team_current_quarter_row["closed_won"] or 0
+    cq_tech_win = team_current_quarter_row["tech_win"] or 0
+    team_current_quarter = {
+        "total": cq_total,
+        "closed_won": cq_closed_won,
+        "tech_win": cq_tech_win,
+        "closed_won_pct": pct(cq_closed_won, cq_total),
+        "tech_win_pct": pct(cq_tech_win, cq_total),
+        "fiscal_quarter": current_fq_label,
+    }
+
+    return jsonify({"team": team, "team_current_quarter": team_current_quarter, "reps": reps})
 
 
 # ── Sync ─────────────────────────────────────────────────────────────────

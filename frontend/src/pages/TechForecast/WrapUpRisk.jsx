@@ -1,53 +1,8 @@
 import { useState } from 'react';
 import { assignSe } from '../../api.js';
 import { toast } from '../../toast.js';
-
-function fmtMoney(n) {
-  if (n == null) return '-';
-  return '$' + Number(n).toLocaleString(undefined, { maximumFractionDigits: 0 });
-}
-
-function oppLink(name, url) {
-  return url ? (
-    <a href={url} target="_blank" rel="noopener noreferrer">
-      {name}
-    </a>
-  ) : (
-    name
-  );
-}
-
-function forecastStatusBadge(status) {
-  const map = { Strong: 'badge-green', Forecasted: 'badge-blue', 'Forecasted Risk': 'badge-red' };
-  return <span className={`badge ${map[status] || 'badge-muted'}`}>{status || '-'}</span>;
-}
-
-function DealFlags({ d }) {
-  return (
-    <div className="pill-row">
-      {d.notes_stale && <span className="badge badge-amber">No update this week</span>}
-      {!d.pre_sales_next_steps && <span className="badge badge-amber">No TW Strategy</span>}
-      {d.needs_lead_se && <span className="badge badge-amber">No Lead SE (sheet)</span>}
-    </div>
-  );
-}
-
-function SeAssignSelect({ d, reps, onAssign }) {
-  return (
-    <select
-      className="se-assign-select"
-      value={d.effective_se_rep_id || ''}
-      onChange={(e) => onAssign(d.sheet_key, e.target.value)}
-    >
-      <option value="">Unassigned</option>
-      {reps.map((r) => (
-        <option key={r.id} value={r.id}>
-          {r.name}
-        </option>
-      ))}
-    </select>
-  );
-}
+import DealsTable from './DealsTable.jsx';
+import { DealFlags, SeAssignSelect, fmtMoney, forecastStatusBadge, oppLink, presalesStageBadge } from './dealHelpers.jsx';
 
 function pctBar(pct, opts = {}) {
   const { modifier = '', countLabel = '' } = opts;
@@ -85,17 +40,39 @@ function WinRateRepRow({ r }) {
 
 function WinRateSummary({ summary }) {
   const team = summary.team;
+  const teamCurrentQuarter = summary.team_current_quarter;
   return (
     <>
       <div className="winrate-team">
         <div className="winrate-team-metric">
-          <div className="winrate-team-metric-label">Closed Won</div>
+          <div className="winrate-team-metric-label">Closed Won — All Time</div>
           {pctBar(team.closed_won_pct, { countLabel: `${team.closed_won}/${team.total}` })}
         </div>
         <div className="winrate-team-metric">
-          <div className="winrate-team-metric-label">Tech Win</div>
+          <div className="winrate-team-metric-label">Tech Win — All Time</div>
           {pctBar(team.tech_win_pct, { modifier: 'accent', countLabel: `${team.tech_win}/${team.total}` })}
         </div>
+        {teamCurrentQuarter && (
+          <>
+            <div className="winrate-team-metric">
+              <div className="winrate-team-metric-label">
+                Closed Won — This Quarter — {teamCurrentQuarter.fiscal_quarter}
+              </div>
+              {pctBar(teamCurrentQuarter.closed_won_pct, {
+                countLabel: `${teamCurrentQuarter.closed_won}/${teamCurrentQuarter.total}`,
+              })}
+            </div>
+            <div className="winrate-team-metric">
+              <div className="winrate-team-metric-label">
+                Tech Win — This Quarter — {teamCurrentQuarter.fiscal_quarter}
+              </div>
+              {pctBar(teamCurrentQuarter.tech_win_pct, {
+                modifier: 'accent',
+                countLabel: `${teamCurrentQuarter.tech_win}/${teamCurrentQuarter.total}`,
+              })}
+            </div>
+          </>
+        )}
       </div>
       <div className="winrate-reps">
         {summary.reps.map((r) => (
@@ -106,23 +83,24 @@ function WinRateSummary({ summary }) {
   );
 }
 
-function WrapUpRow({ d, reps, onAssign }) {
+function opportunityCell(d) {
   return (
-    <tr>
-      <td>
-        {oppLink(d.opportunity_name, d.opportunity_url)}
-        <div style={{ color: 'var(--text-muted)', fontSize: '.72rem' }}>AE: {d.opportunity_owner || '-'}</div>
-      </td>
-      <td>{forecastStatusBadge(d.forecast_status)}</td>
-      <td>{fmtMoney(d.amount)}</td>
-      <td>
-        <SeAssignSelect d={d} reps={reps} onAssign={onAssign} />
-      </td>
-      <td>
-        <DealFlags d={d} />
-      </td>
-    </tr>
+    <>
+      {oppLink(d.opportunity_name, d.opportunity_url)}
+      <div style={{ color: 'var(--text-muted)', fontSize: '.72rem' }}>AE: {d.opportunity_owner || '-'}</div>
+    </>
   );
+}
+
+function buildWrapUpColumns(reps, onAssign) {
+  return [
+    { key: 'opportunity', header: 'Opportunity', render: opportunityCell },
+    { key: 'presales_stage', header: 'Presales Stage', render: (d) => presalesStageBadge(d.presales_stage) },
+    { key: 'forecast_status', header: 'Forecast Status', render: (d) => forecastStatusBadge(d.forecast_status) },
+    { key: 'amount', header: 'Amount', render: (d) => fmtMoney(d.amount) },
+    { key: 'se', header: 'SE', render: (d) => <SeAssignSelect d={d} reps={reps} onAssign={onAssign} /> },
+    { key: 'flags', header: 'Flags', render: (d) => <DealFlags d={d} /> },
+  ];
 }
 
 export function WinRateClosedDeals({ winRateSummary }) {
@@ -154,27 +132,15 @@ export default function WrapUpRisk({ deals, reps, onAssigned }) {
     }
   }
 
+  const wrapUpColumns = buildWrapUpColumns(reps, handleAssign);
+
   return (
-    <div className="card">
+    <div className="card" id="risk-section">
+      <span id="stale-section" />
       <div className="card-title">Wrap-Up &amp; Risk ({wrapUpDeals.length})</div>
       {wrapUpDeals.length ? (
         <div className="table-scroll" style={busy ? { opacity: 0.6, pointerEvents: 'none' } : undefined}>
-          <table>
-            <thead>
-              <tr>
-                <th>Opportunity</th>
-                <th>Forecast Status</th>
-                <th>Amount</th>
-                <th>SE</th>
-                <th>Flags</th>
-              </tr>
-            </thead>
-            <tbody>
-              {wrapUpDeals.map((d) => (
-                <WrapUpRow key={d.sheet_key || d.opportunity_id} d={d} reps={reps} onAssign={handleAssign} />
-              ))}
-            </tbody>
-          </table>
+          <DealsTable deals={wrapUpDeals} columns={wrapUpColumns} />
         </div>
       ) : (
         <div className="empty-state">Nothing at risk right now</div>

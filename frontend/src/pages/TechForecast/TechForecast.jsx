@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getClosedDealsSummary, getReps, getTechForecast } from '../../api.js';
 import { toast } from '../../toast.js';
 import { enterPresentMode, exitPresentMode } from '../../theme.js';
@@ -11,6 +11,13 @@ export default function TechForecast() {
   const [data, setData] = useState(null);
   const [reps, setReps] = useState([]);
   const [winRateSummary, setWinRateSummary] = useState(null);
+  const pageRef = useRef(null);
+
+  function setAllSections(open) {
+    pageRef.current?.querySelectorAll('details.flyout').forEach((el) => {
+      el.open = open;
+    });
+  }
 
   const refresh = useCallback(() => {
     return getTechForecast().then((res) => setData(res));
@@ -60,20 +67,24 @@ export default function TechForecast() {
           </div>
         </div>
         <div className="filter-row">
+          <button className="btn" onClick={() => setAllSections(true)}>&#128200; Expand all</button>
+          <button className="btn" onClick={() => setAllSections(false)}>&#128201; Collapse all</button>
           <button className="btn" onClick={handleSyncNow}>&#128260; Sync now</button>
           <button className="btn btn-primary" onClick={enterPresentMode}>&#128225; Present mode</button>
         </div>
       </div>
 
-      <MacroView deals={data.deals} />
+      <div ref={pageRef}>
+        <MacroView deals={data.deals} data={data} />
 
-      <WinRateClosedDeals winRateSummary={winRateSummary} />
+        <WinRateClosedDeals winRateSummary={winRateSummary} />
 
-      <LookBack wins={data.recent_wins} />
+        <LookBack wins={data.recent_wins} />
 
-      <LookForwardInspect deals={data.deals} reps={reps} onAssigned={refresh} />
+        <LookForwardInspect deals={data.deals} reps={reps} onAssigned={refresh} />
 
-      <WrapUpRisk deals={data.deals} reps={reps} onAssigned={refresh} />
+        <WrapUpRisk deals={data.deals} reps={reps} onAssigned={refresh} />
+      </div>
     </>
   );
 }

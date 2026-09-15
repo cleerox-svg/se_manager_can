@@ -145,6 +145,8 @@ a:hover { color: var(--text-primary); }
 
 .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }
 .stat-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--depth-raised); }
+.stat-card.clickable { cursor: pointer; }
+.stat-card.clickable:hover { background: var(--bg-card-hover); }
 .stat-value { font-size: 1.6rem; font-weight: 700; }
 .stat-label { font-size: .74rem; color: var(--text-secondary); margin-top: 2px; }
 
@@ -220,7 +222,14 @@ textarea { width: 100%; min-height: 320px; line-height: 1.5; resize: vertical; }
 .toast.error { border-color: var(--red); color: var(--red); }
 .toast.success { border-color: var(--green); color: var(--green); }
 
+/* ── SFDC Updates ────────────────────────────────────────────────────────── */
+.sfdc-update-row { padding: 14px 0; border-bottom: 1px solid var(--border); }
+.sfdc-update-row:last-child { border-bottom: none; }
+.sfdc-update-header { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
+.sfdc-update-row textarea { min-height: 90px; }
+
 /* ── Misc ────────────────────────────────────────────────────────────────── */
+.muted { color: var(--text-muted); font-size: .84rem; }
 .empty-state { text-align: center; padding: 60px 20px; color: var(--text-muted); }
 .empty-icon { font-size: 2rem; margin-bottom: 10px; }
 .pill-row { display: flex; gap: 6px; flex-wrap: wrap; }

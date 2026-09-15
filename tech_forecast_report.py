@@ -87,6 +87,11 @@ def fiscal_quarter_sort_key(label):
     return (int(label[2:4]), int(label[-1]))
 
 
+def quarter_label(key):
+    """Format a (fy, q) sort-key tuple as a display label, e.g. FY26-Q3."""
+    return f"FY{key[0]:02d}-Q{key[1]}"
+
+
 def _offset_quarter_key(key, n):
     """Shift a (fy, q) key by n quarters, e.g. (26, 3) + 1 -> (26, 4),
     (26, 4) + 1 -> (27, 1). Used to find "next quarter" relative to
@@ -100,6 +105,25 @@ def _offset_quarter_key(key, n):
         q += 4
         fy -= 1
     return (fy, q)
+
+
+def fiscal_quarter_date_range(key):
+    """Return (start_iso, end_iso) exclusive-end ISO dates for a (fy, q)
+    sort-key tuple. Fiscal quarter Q of fiscal year FY (named by its start
+    year) starts Feb 1 of that FY's start year plus 3*(Q-1) months, and ends
+    (exclusive) 3 months after that start — same Feb-1 fiscal-year math as
+    fiscal_quarter()."""
+    fy, q = key
+    year = 2000 + fy
+    start_month = 2 + 3 * (q - 1)
+    start_year = year + (start_month - 1) // 12
+    start_month = (start_month - 1) % 12 + 1
+    end_month = start_month + 3
+    end_year = start_year + (end_month - 1) // 12
+    end_month = (end_month - 1) % 12 + 1
+    start = date(start_year, start_month, 1)
+    end = date(end_year, end_month, 1)
+    return (start.isoformat(), end.isoformat())
 
 
 def current_fiscal_quarter():
@@ -337,6 +361,62 @@ def build_top_deals(deal_rows, limit=10):
     return result
 
 
+_ENTRY_SPLIT_RE = re.compile(r"\r?\n\r?\n+")
+
+def _latest_note_entry(text):
+    if not text:
+        return ""
+    return _ENTRY_SPLIT_RE.split(text.strip(), maxsplit=1)[0].strip()
+
+
+def draft_sfdc_note(row):
+    opp = row.get("opportunity_name") or "This opportunity"
+
+    if row.get("presales_stage") == "6 - Technical Win":
+        return (
+            f"Technical Win is confirmed. Commercial stage is "
+            f"{_stage_label(row.get('sales_stage'))} — no further pre-sales "
+            f"action needed unless something changes."
+        )
+
+    se_note = _latest_note_entry(row.get("se_manager_notes"))
+    if se_note:
+        return f"Latest SE Manager note: {se_note}"
+
+    presales_note = _latest_note_entry(row.get("pre_sales_notes"))
+    if presales_note:
+        return f"No SE Manager note logged yet. Latest Pre-Sales note: {presales_note}"
+
+    next_steps = (row.get("pre_sales_next_steps") or "").strip()
+    if next_steps:
+        return f"No notes logged yet — next step on file: {next_steps}"
+
+    return f"No notes logged yet for {opp} — worth a quick sync with the SE before the next forecast call."
+
+
+def build_sfdc_updates(deal_rows):
+    candidates = [
+        r for r in deal_rows
+        if r.get("sales_stage") != "10 - Closed/Won"
+        and quarter_bucket(r.get("technical_win_date") or r.get("close_date")) in ("current", "next")
+    ]
+    candidates.sort(key=lambda r: r.get("amount") or 0, reverse=True)
+    return [
+        {
+            "opportunity_name": r.get("opportunity_name"),
+            "opportunity_url": opportunity_url(r.get("opportunity_id")),
+            "amount": r.get("amount"),
+            "presales_stage": r.get("presales_stage"),
+            "sales_stage": r.get("sales_stage"),
+            "lead_se_name": r.get("lead_se_name") or "",
+            "target_fiscal_quarter": fiscal_quarter(r.get("technical_win_date") or r.get("close_date")),
+            "quarter_bucket": quarter_bucket(r.get("technical_win_date") or r.get("close_date")),
+            "proposed_note": draft_sfdc_note(r),
+        }
+        for r in candidates
+    ]
+
+
 def build_missing_notes(deal_rows):
     """Open deals (not yet a Technical Win) with no Pre-Sales Next Steps
     logged at all — a stronger, more urgent signal than `notes_stale`
@@ -495,12 +575,9 @@ def build_slack_draft(preread):
         for d in top_deals:
             buckets.setdefault(d.get("quarter_bucket") or "later", buckets["later"]).append(d)
 
-        def _quarter_label(key):
-            return f"FY{key[0]:02d}-Q{key[1]}"
-
         section_specs = [
-            ("current", f"*Current quarter ({_quarter_label(current_key)}):*"),
-            ("next", f"*Next quarter ({_quarter_label(next_key)}):*"),
+            ("current", f"*Current quarter ({quarter_label(current_key)}):*"),
+            ("next", f"*Next quarter ({quarter_label(next_key)}):*"),
             ("later", "*Unscheduled / later:*"),
         ]
         for bucket_key, heading in section_specs:

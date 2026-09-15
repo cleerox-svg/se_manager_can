@@ -1,107 +1,80 @@
 import { useState } from 'react';
 import { assignSe } from '../../api.js';
 import { toast } from '../../toast.js';
+import DealsTable from './DealsTable.jsx';
+import {
+  DealFlags,
+  SeAssignSelect,
+  fmtMoney,
+  forecastStatusBadge,
+  oppLink,
+  presalesStageBadge,
+  salesStageBadge,
+  truncate,
+} from './dealHelpers.jsx';
 
-function fmtMoney(n) {
-  if (n == null) return '-';
-  return '$' + Number(n).toLocaleString(undefined, { maximumFractionDigits: 0 });
+const QUARTER_BUCKETS = [
+  { key: 'overdue', label: 'Overdue' },
+  { key: 'current', label: 'Current Quarter' },
+  { key: 'next', label: 'Next Quarter' },
+  { key: 'later', label: 'Later / Unscheduled' },
+];
+
+function bucketDeals(deals) {
+  const byBucket = new Map(QUARTER_BUCKETS.map((b) => [b.key, []]));
+  for (const d of deals) {
+    const key = byBucket.has(d.quarter_bucket) ? d.quarter_bucket : 'later';
+    byBucket.get(key).push(d);
+  }
+  return QUARTER_BUCKETS.map((b) => ({
+    ...b,
+    items: byBucket.get(b.key).sort((a, c) => (c.amount || 0) - (a.amount || 0)),
+  })).filter((b) => b.items.length);
 }
 
-function oppLink(name, url) {
-  return url ? (
-    <a href={url} target="_blank" rel="noopener noreferrer">
-      {name}
-    </a>
-  ) : (
-    name
+function opportunityCell(d) {
+  return (
+    <>
+      {oppLink(d.opportunity_name, d.opportunity_url)}
+      <div style={{ color: 'var(--text-muted)', fontSize: '.72rem' }}>AE: {d.opportunity_owner || '-'}</div>
+    </>
   );
 }
 
-function truncate(text, n) {
-  if (!text) return text;
-  return text.length > n ? text.slice(0, n) + '...' : text;
-}
-
-function presalesStageBadge(stage) {
-  const cls = stage === '6 - Technical Win' ? 'badge-green' : 'badge-blue';
-  return <span className={`badge ${cls}`}>{stage || '-'}</span>;
-}
-
-function forecastStatusBadge(status) {
-  const map = { Strong: 'badge-green', Forecasted: 'badge-blue', 'Forecasted Risk': 'badge-red' };
-  return <span className={`badge ${map[status] || 'badge-muted'}`}>{status || '-'}</span>;
-}
-
-function DealFlags({ d }) {
+function notesCell(text) {
   return (
-    <div className="pill-row">
-      {d.notes_stale && <span className="badge badge-amber">No update this week</span>}
-      {!d.pre_sales_next_steps && <span className="badge badge-amber">No TW Strategy</span>}
-      {d.needs_lead_se && <span className="badge badge-amber">No Lead SE (sheet)</span>}
-    </div>
-  );
-}
-
-function NotesCell({ text, maxWidth }) {
-  return (
-    <td title={text || ''} style={{ maxWidth, fontSize: '.78rem', color: 'var(--text-secondary)' }}>
-      {truncate(text, 90) || '-'}
-    </td>
-  );
-}
-
-function SeAssignSelect({ d, reps, onAssign }) {
-  return (
-    <select
-      className="se-assign-select"
-      value={d.effective_se_rep_id || ''}
-      onChange={(e) => onAssign(d.sheet_key, e.target.value)}
+    <span
+      title={text || ''}
+      style={{ maxWidth: 220, fontSize: '.78rem', color: 'var(--text-secondary)', display: 'inline-block' }}
     >
-      <option value="">Unassigned</option>
-      {reps.map((r) => (
-        <option key={r.id} value={r.id}>
-          {r.name}
-        </option>
-      ))}
-    </select>
+      {truncate(text, 90) || '-'}
+    </span>
   );
 }
 
-function InspectRow({ d, reps, onAssign }) {
-  return (
-    <tr>
-      <td>
-        {oppLink(d.opportunity_name, d.opportunity_url)}
-        <div style={{ color: 'var(--text-muted)', fontSize: '.72rem' }}>AE: {d.opportunity_owner || '-'}</div>
-      </td>
-      <td>{d.sales_stage || '-'}</td>
-      <td>{presalesStageBadge(d.presales_stage)}</td>
-      <td>{forecastStatusBadge(d.forecast_status)}</td>
-      <td>{d.technical_win_date || '-'}</td>
-      <td>{fmtMoney(d.amount)}</td>
-      <td>
-        <SeAssignSelect d={d} reps={reps} onAssign={onAssign} />
-      </td>
-      <td>
-        <DealFlags d={d} />
-      </td>
-      <NotesCell text={d.pre_sales_notes} maxWidth={220} />
-      <NotesCell text={d.pre_sales_next_steps} maxWidth={220} />
-      <NotesCell text={d.se_manager_notes} maxWidth={220} />
-    </tr>
-  );
+function buildNeedsLeadSeColumns() {
+  return [
+    { key: 'opportunity', header: 'Opportunity', render: opportunityCell },
+    { key: 'presales_stage', header: 'Presales Stage', render: (d) => presalesStageBadge(d.presales_stage) },
+    { key: 'forecast_status', header: 'Forecast Status', render: (d) => forecastStatusBadge(d.forecast_status) },
+    { key: 'amount', header: 'Amount', render: (d) => fmtMoney(d.amount) },
+  ];
 }
 
-function NeedsLeadSeRow({ r }) {
-  return (
-    <tr>
-      <td>{oppLink(r.opportunity_name, r.opportunity_url)}</td>
-      <td>{r.opportunity_owner || '-'}</td>
-      <td>{presalesStageBadge(r.presales_stage)}</td>
-      <td>{forecastStatusBadge(r.forecast_status)}</td>
-      <td>{fmtMoney(r.amount)}</td>
-    </tr>
-  );
+function buildInspectColumns(reps, onAssign) {
+  return [
+    { key: 'opportunity', header: 'Opportunity', render: opportunityCell },
+    { key: 'presales_stage', header: 'Presales Stage', render: (d) => presalesStageBadge(d.presales_stage) },
+    { key: 'forecast_status', header: 'Forecast Status', render: (d) => forecastStatusBadge(d.forecast_status) },
+    { key: 'amount', header: 'Amount', render: (d) => fmtMoney(d.amount) },
+    { key: 'se', header: 'SE', render: (d) => <SeAssignSelect d={d} reps={reps} onAssign={onAssign} /> },
+    { key: 'flags', header: 'Flags', render: (d) => <DealFlags d={d} /> },
+    { key: 'stage', header: 'Stage', render: (d) => salesStageBadge(d.sales_stage) },
+    { key: 'tech_win_date', header: 'Tech win date', render: (d) => d.technical_win_date || '-' },
+    { key: 'pre_sales_notes', header: 'Pre-sales notes', render: (d) => notesCell(d.pre_sales_notes) },
+    { key: 'pre_sales_next_steps', header: 'Pre-sales next steps', render: (d) => notesCell(d.pre_sales_next_steps) },
+    { key: 'se_manager_notes', header: 'SE manager notes', render: (d) => notesCell(d.se_manager_notes) },
+  ];
 }
 
 export default function LookForwardInspect({ deals, reps, onAssigned }) {
@@ -110,7 +83,8 @@ export default function LookForwardInspect({ deals, reps, onAssigned }) {
   const needsLeadSeDeals = deals
     .filter((d) => d.needs_lead_se)
     .sort((a, b) => (b.amount || 0) - (a.amount || 0));
-  const inspectDeals = deals.filter((d) => d.presales_stage !== '6 - Technical Win');
+  const inspectBuckets = bucketDeals(deals.filter((d) => d.presales_stage !== '6 - Technical Win'));
+  const inspectCount = inspectBuckets.reduce((s, b) => s + b.items.length, 0);
 
   async function handleAssign(sheetKey, value) {
     setBusy(true);
@@ -125,28 +99,16 @@ export default function LookForwardInspect({ deals, reps, onAssigned }) {
     }
   }
 
+  const needsLeadSeColumns = buildNeedsLeadSeColumns();
+  const inspectColumns = buildInspectColumns(reps, handleAssign);
+
   return (
     <>
-      <div className="card">
+      <div className="card" id="needs-lead-se-section">
         <div className="card-title">Needs Lead SE ({needsLeadSeDeals.length})</div>
         {needsLeadSeDeals.length ? (
           <div className="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>Opportunity</th>
-                  <th>AE</th>
-                  <th>Presales Stage</th>
-                  <th>Forecast Status</th>
-                  <th>Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                {needsLeadSeDeals.map((r) => (
-                  <NeedsLeadSeRow key={r.sheet_key || r.opportunity_id} r={r} />
-                ))}
-              </tbody>
-            </table>
+            <DealsTable deals={needsLeadSeDeals} columns={needsLeadSeColumns} />
           </div>
         ) : (
           <div className="empty-state">Every deal in the sheet has a Lead SE set</div>
@@ -154,31 +116,28 @@ export default function LookForwardInspect({ deals, reps, onAssigned }) {
       </div>
 
       <div className="card">
-        <div className="card-title">Look Forward &amp; Inspect — Open Pipeline ({inspectDeals.length})</div>
-        {inspectDeals.length ? (
-          <div className="table-scroll" style={busy ? { opacity: 0.6, pointerEvents: 'none' } : undefined}>
-            <table>
-              <thead>
-                <tr>
-                  <th>Opportunity</th>
-                  <th>Stage</th>
-                  <th>Presales Stage</th>
-                  <th>Forecast Status</th>
-                  <th>Tech win date</th>
-                  <th>Amount</th>
-                  <th>SE</th>
-                  <th>Flags</th>
-                  <th>Pre-sales notes</th>
-                  <th>Pre-sales next steps</th>
-                  <th>SE manager notes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {inspectDeals.map((d) => (
-                  <InspectRow key={d.sheet_key || d.opportunity_id} d={d} reps={reps} onAssign={handleAssign} />
-                ))}
-              </tbody>
-            </table>
+        <div className="card-title">Look Forward &amp; Inspect — Open Pipeline ({inspectCount})</div>
+        {inspectCount ? (
+          <div style={busy ? { opacity: 0.6, pointerEvents: 'none' } : undefined}>
+            {inspectBuckets.map((b, bi) => {
+              const bTotal = b.items.reduce((s, d) => s + (d.amount || 0), 0);
+              const sectionId =
+                b.key === 'current' ? 'current-quarter-section' : b.key === 'next' ? 'next-quarter-section' : undefined;
+              return (
+                <details
+                  key={b.key}
+                  id={sectionId}
+                  className={`flyout wins-quarter${bi === 0 ? ' is-first' : ''}`}
+                >
+                  <summary>
+                    {b.label} · {b.items.length} deal{b.items.length === 1 ? '' : 's'} · {fmtMoney(bTotal)}
+                  </summary>
+                  <div className="table-scroll">
+                    <DealsTable deals={b.items} columns={inspectColumns} />
+                  </div>
+                </details>
+              );
+            })}
           </div>
         ) : (
           <div className="empty-state">No open deals synced yet</div>
