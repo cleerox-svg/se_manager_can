@@ -10,3 +10,4 @@ venv/
 _mcp_payload_*.json
 server.log
 app.log
+*.log

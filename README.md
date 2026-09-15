@@ -11,7 +11,7 @@ on [NaughtRFP](../rfp-responder)'s stack and Okta dark-theme UI.
   % closed won, % technical win, from `/api/closed-deals/summary`'s
   name-free `team` object), a stacked ARR-trend area chart across the full
   `tech_forecast_snapshots` history (Technical Win / In Flight / Untagged),
-  a stage-funnel bar chart per forecast status (reusing
+  a stage-funnel bar chart per confidence (reusing
   `tech_forecast_report.build_breakdown()`), and a quarter-over-quarter
   Technical Win ARR bar chart grouped by Okta fiscal quarter (see "Fiscal
   quarters" in CLAUDE.md). Built with `recharts`.
@@ -71,13 +71,16 @@ on [NaughtRFP](../rfp-responder)'s stack and Okta dark-theme UI.
   Win date's fiscal-quarter bucket, in fixed order Overdue → Current Quarter →
   Next Quarter → Later/Unscheduled; within each group, deals are sorted by
   Amount (ARR) descending. Each group's summary line shows the bucket label,
-  deal count, and dollar total, same as Look Back's group headers. Each row
-  shows Stage (now a colored badge — green for Closed/Won, red for
-  Closed/Lost, blue for still-open — instead of plain text), Presales
-  Stage, Forecast Status, Tech Win Date, Amount, an SE dropdown (with a
-  "No Lead SE (sheet)" badge when the sheet itself has no Lead SE set),
-  Flags, and all three of Pre-Sales Notes, SE Manager Notes, and Pre-Sales
-  Next Steps as distinct columns), and Wrap-Up & Risk (Forecasted Risk
+  deal count, and dollar total, same as Look Back's group headers. Each deal
+  renders as a full-width card (not a table row) so its notes don't need
+  truncation or a tooltip: a header with the opportunity name/link, AE, Stage
+  (colored badge — green for Closed/Won, red for Closed/Lost, blue for
+  still-open), Presales Stage, Confidence, Billing State/Province, and
+  Amount; a meta row with an SE dropdown (with a "No Lead SE (sheet)" badge
+  when the sheet itself has no Lead SE set), Flags, and Tech Win Date; and a
+  responsive 3-column notes section showing the full text of Pre-Sales
+  Notes, Pre-Sales Next Steps, and SE Manager Notes side by side, wrapping to
+  fewer columns on narrower screens), and Wrap-Up & Risk (Forecasted Risk
   and/or stale-notes deals, same SE display as Look Forward & Inspect).
   A deal is flagged stale ("No update this week")
   when its Pre-Sales Next Steps text is unchanged from the previous sync —
@@ -96,17 +99,36 @@ on [NaughtRFP](../rfp-responder)'s stack and Okta dark-theme UI.
   Okta's "Identity security - breach protection" Value Driver. It's
   deliberately one static script rather than per-deal — per-deal would need
   new Value-Driver-tagging fields that don't exist yet. The
-  "Come ready to discuss" section shows the deal's Lead SE (not the AE) and
-  is split into Current quarter / Next quarter / Unscheduled-or-later
-  sub-sections by each deal's target Technical Win date's Okta fiscal
-  quarter (`tech_forecast_report.quarter_bucket`, relative to today's
-  fiscal quarter), each deal followed by a heuristic, rule-based discussion
-  question (`build_discussion_question` — not LLM-generated; picks from
-  missing-next-steps / stale-notes / at-risk / stage-based prompts in that
-  priority order, since each is a stronger signal than the last, and phrased
-  around Command of the Message / Opportunity Analysis & Coaching Guide
-  qualification pillars — compelling event, Champion, Decision Criteria/
-  Process, Proof Points — rather than generic stage-progress language). A separate
+  "Come ready to discuss" section is split into Current Quarter / Next
+  Quarter sections (titled with each quarter's Okta fiscal-quarter label,
+  e.g. "Current Quarter — FY26-Q3") by each deal's target Technical Win
+  date's fiscal quarter (`tech_forecast_report.quarter_bucket`, relative to
+  today's fiscal quarter; the "later" bucket still appears further down,
+  ungrouped). Within each quarter section, deals are grouped by Lead SE
+  (case-insensitive, so a name typed with different casing in the sheet
+  still groups together) and the SE groups are sorted highest-to-lowest by
+  that SE's aggregate ARR in the section, so the manager sees whoever has
+  the most on the line first; deals with no Lead SE on file are grouped
+  under a literal "No Lead SE on file" heading, always last regardless of
+  its ARR. Each SE sub-heading shows their name and aggregate ARR, plus a
+  plain-text alias (e.g. `@Rishika`) for exactly the 4 reps who report to
+  Claude Leroux — Rishika Kondaveeti, Nic Da Silva, Sean Keleher, Valentin
+  Bourneuf — via a hardcoded name→alias map
+  (`tech_forecast_report._SLACK_ALIAS_BY_NAME`), not a real Slack `<@U...>`
+  mention: that syntax only resolves as a live mention when sent via the
+  Slack API, not when pasted as literal text into Slack's compose box, so it
+  read as broken/dead text once copy-pasted. Every other SE (and the "No
+  Lead SE on file" group) just shows their plain name, no mention at all —
+  this is deliberately scoped to the 4 direct reports, not tied to whether
+  `se_reps.slack_user_id` is on file. Each deal line keeps a
+  heuristic, rule-based discussion question (`build_discussion_question` —
+  not LLM-generated; picks from missing-next-steps / stale-notes / at-risk /
+  stage-based prompts in that priority order, since each is a stronger
+  signal than the last, and phrased around Command of the Message /
+  Opportunity Analysis & Coaching Guide qualification pillars — compelling
+  event, Champion, Decision Criteria/Process, Proof Points — rather than
+  generic stage-progress language) but no longer repeats the SE's name per
+  deal line, since it's now implied by the sub-heading above it. A separate
   "Missing notes" section lists every open (non-Technical-Win) deal across
   the full pipeline with a blank Pre-Sales Next Steps field, not just the
   ones in "Come ready to discuss." A "Present mode" toggle hides the
@@ -224,7 +246,11 @@ Data gets in via one of two paths — see [SETUP.md](SETUP.md):
 - `tech_forecast_deals` — synced from the Team Tracking Sheet's Technical
   Forecast tab, one row per open deal in the technical-win pipeline
   (`lead_se_name` straight from the sheet, Presales Stage — a flat per-deal
-  field, genuinely blank for un-staged deals — Deal Forecast Status,
+  field, genuinely blank for un-staged deals — Confidence and Billing
+  State/Province (both new fields, replacing Deal Forecast Status as the
+  visible column/grouping axis everywhere; Forecast Status is still synced
+  and stored, just no longer rendered as a column — it now only backs the
+  Wrap-Up & Risk filter and the Macro View "Forecasted Risk" stat tile),
   Technical Win Date, overall Stage, Pre-Sales Notes, SE Manager Notes,
   Pre-Sales Next Steps, plus a manually-set `assigned_se_rep_id`
   override — see "SE attribution" above).

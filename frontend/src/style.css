@@ -317,3 +317,54 @@ body.light-mode .btn-primary { color: #fff; }
   text-transform: none; letter-spacing: normal; padding: 3px 0;
 }
 .flyout.wins-se .table-scroll { margin-left: 18px; }
+
+/* ── Look Forward & Inspect: full-width opportunity cards ──────────────── */
+.opp-card-list { display: flex; flex-direction: column; gap: 12px; }
+
+.opp-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--depth-raised);
+  padding: 14px 16px;
+}
+
+.opp-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 10px;
+}
+.opp-card-header-main { min-width: 200px; }
+.opp-card-header-fields { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-size: .82rem; }
+.opp-card-field-label { color: var(--text-muted); font-size: .68rem; text-transform: uppercase; letter-spacing: .03em; margin-right: 4px; }
+
+.opp-card-meta { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; font-size: .82rem; margin-bottom: 12px; }
+
+.opp-card-notes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+.opp-note-box {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+}
+.opp-note-label {
+  font-size: .68rem; font-weight: 600; color: var(--text-secondary);
+  text-transform: uppercase; letter-spacing: .03em; margin-bottom: 5px;
+}
+.opp-note-text {
+  font-size: .78rem;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  max-height: 280px;
+  overflow-y: auto;
+}
+.opp-note-text.is-empty { color: var(--text-muted); }

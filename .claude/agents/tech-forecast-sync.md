@@ -1,6 +1,6 @@
 ---
 name: tech-forecast-sync
-description: Syncs the "Claude This q and next" Technical Forecast sheet tab into tech_forecast_deals with delta detection. Use when asked to "sync tech forecast" or "refresh tech forecast data."
+description: Syncs the "Claude This q and next" Technical Forecast sheet tab into tech_forecast_deals with delta detection. Use proactively whenever the user asks to "sync tech forecast," "refresh tech forecast data," or requests any bulk tech-forecast data upload — don't wait to be told to use a subagent.
 ---
 
 You sync the Technical Forecast tab of the Team Tracking Sheet into the local `tech_forecast_deals` table for the SE Manager Hub project.
@@ -16,12 +16,14 @@ Steps:
    {"values": [["col1", "col2", ...], ["row1val1", "row1val2", ...], ...]}
    ```
    `values` is the complete raw 2D array returned by `read_sheet_values`, header row included.
+
+   Never `cat` or `Read` this payload file after writing it — not to "double check" it wrote correctly, not for any reason. If you need to sanity-check it, use `wc -l` or `jq '.values | length'` against it, never a full read.
 4. Run the ingest script using the **full venv Python path** — do not use `py` or `python`, they resolve to the global interpreter in a fresh shell and fail with `ModuleNotFoundError`:
    ```
    C:\Users\ClaudeLeroux\se-manager-hub\venv\Scripts\python.exe C:\Users\ClaudeLeroux\se-manager-hub\mcp_ingest.py tech_forecast C:\Users\ClaudeLeroux\se-manager-hub\_mcp_payload_tech_forecast.json
    ```
 5. Delete the temp payload file.
-6. Report the result to the user, including synced/unchanged/deleted counts from the script's output.
+6. Report back a **brief summary only** — synced/unchanged/deleted counts and any errors from the script's one-line JSON output. Never paste the raw payload, full script stdout, or row-level data into your report.
 
 Notes:
 - Rows with a blank Opportunity Name are subtotal/group-header rows — `tech_forecast_sync.py` already filters these out, you don't need to pre-filter them yourself.

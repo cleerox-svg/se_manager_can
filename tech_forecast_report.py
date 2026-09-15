@@ -39,6 +39,20 @@ _MANTRA = (
     "Networks all cut breach exposure and audit time after standardizing on Okta."
 )
 
+# Plain-text Slack handles for the four direct reports, keyed by lowercased
+# `se_reps.name` — real `<@slack_user_id>` mention syntax only resolves when
+# sent via the Slack API, not when pasted as text into Slack's compose box,
+# so the Team Prep Message draft (which is copy-pasted) uses plain aliases
+# instead. Per Claude Leroux (2026-09-14): only these four get an alias;
+# everyone else (Mary Greenlee, inactive reps with historical deals) is
+# shown as a plain name with no mention.
+_SLACK_ALIAS_BY_NAME = {
+    "rishika kondaveeti": "Rishika",
+    "nic da silva": "nic",
+    "sean keleher": "SeanK",
+    "valentin bourneuf": "Valentin",
+}
+
 _STAGE_BUCKETS = {
     "2 - Discovery & Technical Qualification": "Early Tech",
     "3 - Technical Scoping": "Early Tech",
@@ -173,10 +187,10 @@ def stage_bucket(presales_stage):
 
 
 def aggregate_buckets(deal_rows):
-    """forecast_status -> stage bucket -> {"amount": .., "count": ..}"""
+    """confidence -> stage bucket -> {"amount": .., "count": ..}"""
     buckets = {}
     for row in deal_rows:
-        status = row.get("forecast_status") or "Untagged"
+        status = row.get("confidence") or "Untagged"
         bucket = stage_bucket(row.get("presales_stage"))
         slot = buckets.setdefault(status, {}).setdefault(bucket, {"amount": 0.0, "count": 0})
         slot["amount"] += row.get("amount") or 0
@@ -219,7 +233,7 @@ def build_breakdown(deal_rows):
     for status in sorted(buckets):
         stage_slots = buckets[status]
         breakdown.append({
-            "forecast_status": status,
+            "confidence": status,
             "stages": [
                 {"bucket": bucket, **stage_slots[bucket]}
                 for bucket in sorted(stage_slots, key=lambda b: _BUCKET_ORDER.get(b, 99))
@@ -332,14 +346,42 @@ def build_discussion_question(row):
     return _STAGE_QUESTIONS.get(row.get("presales_stage"), "What's needed to move this toward Technical Win?")
 
 
-def build_top_deals(deal_rows, limit=10):
+def build_top_deals(deal_rows, limit=10, per_quarter_limit=None):
+    """Candidate deals for the Slack preread's "Come ready to discuss"
+    section. Capped per quarter bucket (current/next), not with one global
+    top-N — per Claude Leroux (2026-09-14), a single global top-N by raw
+    amount can starve one quarter's section (e.g. if the highest-$ deals all
+    happen to land in "current") before build_slack_draft even gets a chance
+    to group them by SE, leaving "next" thin or empty. `per_quarter_limit`
+    defaults to max(limit, 15) so a caller that only passes the legacy
+    `limit` (e.g. /api/tech-forecast/preread's `?limit=`) still gets a
+    generous per-quarter candidate pool; "later"/unscheduled deals keep the
+    old flat `limit` cap since build_slack_draft doesn't group that bucket
+    by SE."""
+    if per_quarter_limit is None:
+        per_quarter_limit = max(limit, 15)
     candidates = [
         r for r in deal_rows
         if stage_bucket(r.get("presales_stage")) not in _EXCLUDED_TOP_DEAL_BUCKETS
     ]
-    candidates.sort(key=lambda r: r.get("amount") or 0, reverse=True)
+
+    grouped = {"current": [], "next": [], "later": []}
+    for r in candidates:
+        target_tw_date = r.get("technical_win_date") or r.get("close_date")
+        bucket = quarter_bucket(target_tw_date) or "later"
+        grouped.setdefault(bucket, grouped["later"]).append(r)
+
+    for group in grouped.values():
+        group.sort(key=lambda r: r.get("amount") or 0, reverse=True)
+
+    selected = (
+        grouped["current"][:per_quarter_limit]
+        + grouped["next"][:per_quarter_limit]
+        + grouped["later"][:limit]
+    )
+
     result = []
-    for r in candidates[:limit]:
+    for r in selected:
         target_tw_date = r.get("technical_win_date") or r.get("close_date")
         result.append({
             "opportunity_name": r.get("opportunity_name"),
@@ -575,17 +617,69 @@ def build_slack_draft(preread):
         for d in top_deals:
             buckets.setdefault(d.get("quarter_bucket") or "later", buckets["later"]).append(d)
 
-        section_specs = [
-            ("current", f"*Current quarter ({quarter_label(current_key)}):*"),
-            ("next", f"*Next quarter ({quarter_label(next_key)}):*"),
-            ("later", "*Unscheduled / later:*"),
+        # "current" and "next" are grouped by lead SE and sorted by each
+        # SE's aggregate ARR in that bucket (highest first), per Claude
+        # Leroux (2026-09-14) — "later" stays flat/amount-sorted like
+        # before since the request only concerns the current/next split.
+        grouped_section_specs = [
+            ("current", f"*Current Quarter — {quarter_label(current_key)}*"),
+            ("next", f"*Next Quarter — {quarter_label(next_key)}*"),
         ]
-        for bucket_key, heading in section_specs:
+        for bucket_key, heading in grouped_section_specs:
             bucket_deals = buckets.get(bucket_key) or []
             if not bucket_deals:
                 continue
             lines.append(heading)
-            for d in bucket_deals[:5]:
+
+            # Keyed by lowercased name so casing differences (e.g. "nic da
+            # silva" vs "Nic Da Silva") group together rather than splitting
+            # into separate sub-headings; display name uses the casing from
+            # the first deal seen for that SE.
+            se_groups = {}
+            no_se_group = []
+            for d in bucket_deals:
+                lead_se_name = (d.get("lead_se_name") or "").strip()
+                if not lead_se_name:
+                    no_se_group.append(d)
+                    continue
+                key = lead_se_name.lower()
+                slot = se_groups.setdefault(key, {"name": lead_se_name, "deals": []})
+                slot["deals"].append(d)
+
+            ordered_keys = sorted(
+                se_groups,
+                key=lambda key: sum(d["amount"] or 0 for d in se_groups[key]["deals"]),
+                reverse=True,
+            )
+
+            for key in ordered_keys:
+                name = se_groups[key]["name"]
+                se_deals = se_groups[key]["deals"]
+                se_arr = sum(d["amount"] or 0 for d in se_deals)
+                alias = _SLACK_ALIAS_BY_NAME.get(key)
+                mention = f" @{alias}" if alias else ""
+                lines.append(f"*{name}*{mention} — ${se_arr:,.0f}")
+                for d in se_deals:
+                    lines.append(
+                        f"- {_slack_opp_link(d)} — ${d['amount']:,.0f} "
+                        f"({_stage_label(d['presales_stage'])})"
+                    )
+                    lines.append(f"  ↳ {d['discussion_question']}")
+
+            if no_se_group:
+                no_se_arr = sum(d["amount"] or 0 for d in no_se_group)
+                lines.append(f"*No Lead SE on file* — ${no_se_arr:,.0f}")
+                for d in no_se_group:
+                    lines.append(
+                        f"- {_slack_opp_link(d)} — ${d['amount']:,.0f} "
+                        f"({_stage_label(d['presales_stage'])})"
+                    )
+                    lines.append(f"  ↳ {d['discussion_question']}")
+
+        later_deals = buckets.get("later") or []
+        if later_deals:
+            lines.append("*Unscheduled / later:*")
+            for d in later_deals[:5]:
                 se = d["lead_se_name"] or "no Lead SE on file"
                 lines.append(
                     f"- {_slack_opp_link(d)} — ${d['amount']:,.0f} "
@@ -631,11 +725,13 @@ def build_preread(db, limit=10):
         deal_rows = [dict(r) for r in c.execute("SELECT * FROM tech_forecast_deals").fetchall()]
 
     metrics = build_key_metrics(deal_rows)
+    top_deals = build_top_deals(deal_rows, limit=limit)
+
     return {
         "executive_takeaway": build_executive_takeaway(metrics),
         "key_metrics": metrics,
         "breakdown": build_breakdown(deal_rows),
-        "top_deals": build_top_deals(deal_rows, limit=limit),
+        "top_deals": top_deals,
         "weekly_deltas": build_weekly_deltas(db),
         "needs_lead_se": build_needs_lead_se(deal_rows),
         "missing_notes": build_missing_notes(deal_rows),

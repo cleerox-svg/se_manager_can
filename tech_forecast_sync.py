@@ -40,10 +40,13 @@ Pre-Sales Next Steps against the value it held as of the *previous* sync
 text.
 
 The sheet's query isn't scoped to just our team — it also carries deals
-whose account-owner manager is Greg Rainbird, a different sales org. We
-drop those rows entirely (see `_EXCLUDED_OWNER_MANAGERS`), even when one of
-our own Lead SEs is still attached (e.g. Luis Santos, since gone inactive),
-since per Claude Leroux those deals aren't ours to track on this page.
+whose account-owner manager is Greg Rainbird, a different sales org. We no
+longer drop those rows; instead we tag them with a `product`/`segment` pair
+(see `_OTHER_ORG_MANAGER_TAGS`) so they stay visible but are clearly marked
+as belonging to a different org, even when one of our own Lead SEs is still
+attached (e.g. Luis Santos, since gone inactive). Future cross-org managers
+found mixed into this sheet's query should be added to the same mapping
+rather than special-cased.
 """
 
 import hashlib
@@ -73,6 +76,8 @@ _HEADER_MAP = {
     "Account Owner Geo-Seg": "geo_seg",
     "Account Owner Sales Segment": "sales_segment",
     "Account Owner Sales Geography": "sales_geo",
+    "Pre-Sales confidence for Quarter": "confidence",
+    "Billing State/Province": "billing_state_province",
 }
 
 _GROUP_LEVELS = ("lead_se_name", "forecast_status")
@@ -82,10 +87,12 @@ _SKIP_MARKERS = ("subtotal", "total")
 # Greg Rainbird's org is a different sales team — the sheet's underlying
 # query pulls in deals across account-owner managers beyond ours, and his
 # team's deals (even ones with one of our Lead SEs still attached from
-# before they went inactive) aren't ours to track here. Per Claude Leroux
-# (2026-09-02), exclude by Opportunity Owner: Manager rather than by Lead SE,
-# since that's the field that actually identifies "whose org is this."
-_EXCLUDED_OWNER_MANAGERS = {"greg rainbird"}
+# before they went inactive) aren't ours to track as if they were our own.
+# Rather than dropping them, we tag them by Opportunity Owner: Manager
+# (that's the field that actually identifies "whose org is this," not Lead
+# SE) with a (product, segment) pair so they stay visible but distinguishable.
+# Add future cross-org managers to this same mapping.
+_OTHER_ORG_MANAGER_TAGS = {"greg rainbird": ("Auth0", "Enterprise/Strategic")}
 
 _GROUP_SUFFIX_RE = re.compile(r"\s*\(\d+\)\s*$")
 
@@ -187,8 +194,9 @@ def _normalize_values(values: list[list[str]]) -> list[dict]:
         if not cells.get("opportunity_name"):
             continue
 
-        if cells.get("opportunity_owner_manager", "").strip().lower() in _EXCLUDED_OWNER_MANAGERS:
-            continue
+        tag = _OTHER_ORG_MANAGER_TAGS.get(cells.get("opportunity_owner_manager", "").strip().lower())
+        if tag:
+            cells["product"], cells["segment"] = tag
 
         cells["is_tech_win"] = 1 if cells.get("presales_stage") == "6 - Technical Win" else 0
         rows.append(cells)
@@ -202,6 +210,7 @@ _FINGERPRINT_FIELDS = (
     "account_region", "geo_seg", "sales_segment", "sales_geo",
     "opportunity_owner", "opportunity_owner_manager",
     "se_manager_notes", "pre_sales_notes", "pre_sales_next_steps",
+    "confidence", "billing_state_province",
 )
 
 
@@ -255,8 +264,9 @@ def load_rows(db, rows: list[dict]) -> dict:
                     forecast_status, sales_stage, deal_type, account_region, geo_seg, sales_segment,
                     sales_geo, close_date, technical_win_date, opportunity_owner, opportunity_owner_manager,
                     se_manager_notes, pre_sales_notes, pre_sales_next_steps, notes_prev_sync,
-                    notes_stale, row_fingerprint, last_synced_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                    notes_stale, confidence, billing_state_province, product, segment,
+                    row_fingerprint, last_synced_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
                 ON CONFLICT(sheet_key) DO UPDATE SET
                     lead_se_name = excluded.lead_se_name, opportunity_id = excluded.opportunity_id,
                     amount = excluded.amount,
@@ -273,6 +283,10 @@ def load_rows(db, rows: list[dict]) -> dict:
                     pre_sales_next_steps = excluded.pre_sales_next_steps,
                     notes_prev_sync = excluded.notes_prev_sync,
                     notes_stale = excluded.notes_stale,
+                    confidence = excluded.confidence,
+                    billing_state_province = excluded.billing_state_province,
+                    product = excluded.product,
+                    segment = excluded.segment,
                     row_fingerprint = excluded.row_fingerprint,
                     last_synced_at = datetime('now')
             """, (
@@ -283,7 +297,9 @@ def load_rows(db, rows: list[dict]) -> dict:
                 row.get("sales_segment"), row.get("sales_geo"), close_date, technical_win_date,
                 row.get("opportunity_owner"), row.get("opportunity_owner_manager"),
                 row.get("se_manager_notes"), row.get("pre_sales_notes", ""), new_next_steps,
-                prior_next_steps, notes_stale, new_fingerprint,
+                prior_next_steps, notes_stale, row.get("confidence"), row.get("billing_state_province"),
+                row.get("product"), row.get("segment"),
+                new_fingerprint,
             ))
 
         deleted_count = 0

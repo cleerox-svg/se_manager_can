@@ -25,6 +25,7 @@ We drop subtotal/total rows and any row with a blank Opportunity Name to get
 one clean row per closed opportunity.
 """
 
+import hashlib
 import re
 from datetime import datetime
 
@@ -158,44 +159,75 @@ def _normalize_values(values: list[list[str]]) -> list[dict]:
     return rows
 
 
+_FINGERPRINT_FIELDS = ("rep_name", "opportunity_name", "opportunity_id", "sales_stage", "tech_win")
+
+
+def _row_fingerprint(row: dict, close_date, amount) -> str:
+    parts = [str(row.get(f) or "") for f in _FINGERPRINT_FIELDS]
+    parts += [close_date or "", "" if amount is None else str(amount)]
+    return hashlib.md5("|".join(parts).encode()).hexdigest()
+
+
 def load_rows(db, rows: list[dict]) -> dict:
-    """Upsert already-normalized rows into the `closed_deals` table."""
+    """Upsert already-normalized rows into the `closed_deals` table, skipping
+    any row whose fingerprint matches what's already stored so an unchanged
+    row is never rewritten."""
     se_rep_ids: dict[str, int] = {}
     with db.conn() as c:
         for row in c.execute("SELECT id, name FROM se_reps"):
             se_rep_ids[row["name"]] = row["id"]
 
-    seen_keys = []
+    existing_fingerprints: dict[str, str] = {}
+    with db.conn() as c:
+        for r in c.execute("SELECT sheet_key, row_fingerprint FROM closed_deals"):
+            existing_fingerprints[r["sheet_key"]] = r["row_fingerprint"]
+
+    seen_keys: list[str] = []
+    changed_count = 0
+    unchanged_count = 0
+
     with db.conn() as c:
         for row in rows:
             rep_name = row.get("rep_name") or "Unassigned"
             se_rep_id = se_rep_ids.get(rep_name)
             close_date = _parse_close_date(row.get("close_date", ""))
+            amount = _parse_amount(row.get("amount", ""))
             sheet_key = "|".join([rep_name, row.get("opportunity_name", ""), row.get("close_date", "")])
             seen_keys.append(sheet_key)
 
+            fingerprint_row = dict(row, rep_name=rep_name)
+            new_fingerprint = _row_fingerprint(fingerprint_row, close_date, amount)
+
+            if existing_fingerprints.get(sheet_key) == new_fingerprint:
+                unchanged_count += 1
+                continue
+
+            changed_count += 1
             c.execute("""
                 INSERT INTO closed_deals (
                     sheet_key, rep_name, se_rep_id, opportunity_name, opportunity_id, amount,
-                    close_date, sales_stage, tech_win, last_synced_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                    close_date, sales_stage, tech_win, row_fingerprint, last_synced_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
                 ON CONFLICT(sheet_key) DO UPDATE SET
                     rep_name = excluded.rep_name, se_rep_id = excluded.se_rep_id,
                     opportunity_id = excluded.opportunity_id, amount = excluded.amount,
                     close_date = excluded.close_date, sales_stage = excluded.sales_stage,
-                    tech_win = excluded.tech_win, last_synced_at = datetime('now')
+                    tech_win = excluded.tech_win, row_fingerprint = excluded.row_fingerprint,
+                    last_synced_at = datetime('now')
             """, (
                 sheet_key, rep_name, se_rep_id, row.get("opportunity_name"), row.get("opportunity_id"),
-                _parse_amount(row.get("amount", "")), close_date, row.get("sales_stage"),
-                row.get("tech_win", 0),
+                amount, close_date, row.get("sales_stage"), row.get("tech_win", 0), new_fingerprint,
             ))
 
+        deleted_count = 0
         if seen_keys:
+            to_delete = set(existing_fingerprints) - set(seen_keys)
+            deleted_count = len(to_delete)
             placeholders = ",".join("?" * len(seen_keys))
             c.execute(f"DELETE FROM closed_deals WHERE sheet_key NOT IN ({placeholders})", seen_keys)
 
     db.set_setting("closed_deals_last_synced_at", datetime.now().isoformat())
-    return {"synced": len(rows)}
+    return {"synced": changed_count, "unchanged": unchanged_count, "deleted": deleted_count}
 
 
 def sync_closed_deals_from_values(db, values: list[list[str]]) -> dict:

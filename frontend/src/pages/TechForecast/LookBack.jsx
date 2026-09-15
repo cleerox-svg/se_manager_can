@@ -41,8 +41,8 @@ function RecentWinRow({ w }) {
       <td>{w.win_date || '-'}</td>
       <td>{fmtMoney(w.amount)}</td>
       <td>
-        <span className={`badge ${w.source === 'closed' ? 'badge-green' : 'badge-blue'}`}>
-          {w.source === 'closed' ? 'Closed win' : 'Tech win (open)'}
+        <span className={`badge ${w.sales_stage === '10 - Closed/Won' ? 'badge-green' : 'badge-blue'}`}>
+          {w.sales_stage === '10 - Closed/Won' ? 'Closed win' : 'Tech win (open)'}
         </span>
       </td>
       <td>
@@ -75,7 +75,7 @@ export default function LookBack({ wins }) {
         const qTotal = qg.items.reduce((s, w) => s + (w.amount || 0), 0);
         const seGroups = groupBy(qg.items, (w) => w.se_name);
         return (
-          <details key={qg.key} className={`flyout wins-quarter${qi === 0 ? ' is-first' : ''}`} open>
+          <details key={qg.key} className={`flyout wins-quarter${qi === 0 ? ' is-first' : ''}`}>
             <summary>
               {qg.key} · {qg.items.length} win{qg.items.length === 1 ? '' : 's'} · {fmtMoney(qTotal)}
             </summary>
@@ -83,7 +83,7 @@ export default function LookBack({ wins }) {
               const seTotal = sg.items.reduce((s, w) => s + (w.amount || 0), 0);
               const noSe = sg.items[0].no_se;
               return (
-                <details key={sg.key} className="flyout wins-se" open>
+                <details key={sg.key} className="flyout wins-se">
                   <summary>
                     {sg.key} · {sg.items.length} win{sg.items.length === 1 ? '' : 's'} · {fmtMoney(seTotal)}{' '}
                     {noSe && <span className="badge badge-amber">No SE</span>}

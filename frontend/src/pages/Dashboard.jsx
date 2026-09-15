@@ -31,8 +31,6 @@ const BUCKET_COLORS = {
   Untagged: 'var(--text-muted)',
 };
 
-const STATUS_ORDER = ['Strong', 'High', 'Forecasted', 'Forecasted Risk'];
-
 function moneyTick(v) {
   if (v >= 1000000) return '$' + (v / 1000000).toFixed(1) + 'M';
   if (v >= 1000) return '$' + Math.round(v / 1000) + 'K';
@@ -73,10 +71,12 @@ export default function Dashboard() {
     Untagged: row.untagged_amount,
   }));
 
-  const funnelStatuses = STATUS_ORDER.filter((s) => funnel.some((f) => f.forecast_status === s));
+  const funnelStatuses = [...new Set(funnel.map((f) => f.confidence))]
+    .filter(Boolean)
+    .sort();
   const funnelData = funnelStatuses.map((status) => {
-    const row = funnel.find((f) => f.forecast_status === status);
-    const entry = { forecast_status: status };
+    const row = funnel.find((f) => f.confidence === status);
+    const entry = { confidence: status };
     BUCKET_ORDER.forEach((b) => { entry[b] = 0; });
     (row?.stages || []).forEach((s) => { entry[s.bucket] = s.amount; });
     return entry;
@@ -125,11 +125,11 @@ export default function Dashboard() {
       </div>
 
       <div className="card">
-        <div className="card-title">Pipeline funnel by forecast status</div>
+        <div className="card-title">Pipeline funnel by confidence</div>
         <ResponsiveContainer width="100%" height={280}>
           <BarChart data={funnelData}>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-            <XAxis dataKey="forecast_status" stroke="var(--text-secondary)" fontSize={12} />
+            <XAxis dataKey="confidence" stroke="var(--text-secondary)" fontSize={12} />
             <YAxis stroke="var(--text-secondary)" fontSize={12} tickFormatter={moneyTick} />
             <Tooltip content={<TooltipCard />} />
             <Legend wrapperStyle={{ fontSize: '.78rem' }} />

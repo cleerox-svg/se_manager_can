@@ -39,6 +39,25 @@ class Database:
         cols = {row["name"] for row in c.execute("PRAGMA table_info(se_reps)")}
         if "arr_target" not in cols:
             c.execute("ALTER TABLE se_reps ADD COLUMN arr_target REAL DEFAULT 0")
+        if "product" not in cols:
+            c.execute("ALTER TABLE se_reps ADD COLUMN product TEXT")
+        if "segment" not in cols:
+            c.execute("ALTER TABLE se_reps ADD COLUMN segment TEXT")
+        if "coverage_role" not in cols:
+            c.execute("ALTER TABLE se_reps ADD COLUMN coverage_role TEXT")
+        if "region" not in cols:
+            c.execute("ALTER TABLE se_reps ADD COLUMN region TEXT")
+
+        cols = {row["name"] for row in c.execute("PRAGMA table_info(deals)")}
+        if "backup_se_rep_id" not in cols:
+            c.execute(
+                "ALTER TABLE deals "
+                "ADD COLUMN backup_se_rep_id INTEGER REFERENCES se_reps(id) ON DELETE SET NULL"
+            )
+        if "backup_note" not in cols:
+            c.execute("ALTER TABLE deals ADD COLUMN backup_note TEXT")
+        if "backup_assigned_at" not in cols:
+            c.execute("ALTER TABLE deals ADD COLUMN backup_assigned_at TEXT")
 
         cols = {row["name"] for row in c.execute("PRAGMA table_info(tech_forecast_deals)")}
         if "assigned_se_rep_id" not in cols:
@@ -54,12 +73,31 @@ class Database:
             c.execute("ALTER TABLE tech_forecast_deals ADD COLUMN opportunity_id TEXT")
         if "row_fingerprint" not in cols:
             c.execute("ALTER TABLE tech_forecast_deals ADD COLUMN row_fingerprint TEXT")
+        if "confidence" not in cols:
+            c.execute("ALTER TABLE tech_forecast_deals ADD COLUMN confidence TEXT")
+        if "billing_state_province" not in cols:
+            c.execute("ALTER TABLE tech_forecast_deals ADD COLUMN billing_state_province TEXT")
+        if "backup_se_rep_id" not in cols:
+            c.execute(
+                "ALTER TABLE tech_forecast_deals "
+                "ADD COLUMN backup_se_rep_id INTEGER REFERENCES se_reps(id) ON DELETE SET NULL"
+            )
+        if "backup_note" not in cols:
+            c.execute("ALTER TABLE tech_forecast_deals ADD COLUMN backup_note TEXT")
+        if "backup_assigned_at" not in cols:
+            c.execute("ALTER TABLE tech_forecast_deals ADD COLUMN backup_assigned_at TEXT")
+        if "product" not in cols:
+            c.execute("ALTER TABLE tech_forecast_deals ADD COLUMN product TEXT")
+        if "segment" not in cols:
+            c.execute("ALTER TABLE tech_forecast_deals ADD COLUMN segment TEXT")
 
         cols = {row["name"] for row in c.execute("PRAGMA table_info(closed_deals)")}
         if "opportunity_id" not in cols:
             c.execute("ALTER TABLE closed_deals ADD COLUMN opportunity_id TEXT")
         if "sales_stage" not in cols:
             c.execute("ALTER TABLE closed_deals ADD COLUMN sales_stage TEXT")
+        if "row_fingerprint" not in cols:
+            c.execute("ALTER TABLE closed_deals ADD COLUMN row_fingerprint TEXT")
 
         c.execute("DROP TABLE IF EXISTS clari_ae_snapshots")
 
@@ -129,6 +167,7 @@ class Database:
                     close_date       TEXT,
                     sales_stage      TEXT,
                     tech_win         INTEGER DEFAULT 0,
+                    row_fingerprint  TEXT,
                     last_synced_at   TEXT DEFAULT (datetime('now'))
                 );
 
@@ -158,6 +197,8 @@ class Database:
                     notes_stale              INTEGER DEFAULT 0,
                     row_fingerprint          TEXT,
                     assigned_se_rep_id       INTEGER REFERENCES se_reps(id),
+                    confidence               TEXT,
+                    billing_state_province   TEXT,
                     last_synced_at           TEXT DEFAULT (datetime('now'))
                 );
 

@@ -28,11 +28,6 @@ export function salesStageBadge(stage) {
   return <span className={`badge ${map[stage] || 'badge-blue'}`}>{stage || '-'}</span>;
 }
 
-export function forecastStatusBadge(status) {
-  const map = { Strong: 'badge-green', Forecasted: 'badge-blue', 'Forecasted Risk': 'badge-red' };
-  return <span className={`badge ${map[status] || 'badge-muted'}`}>{status || '-'}</span>;
-}
-
 export function DealFlags({ d }) {
   return (
     <div className="pill-row">
@@ -48,6 +43,24 @@ export function SeAssignSelect({ d, reps, onAssign }) {
     <select
       className="se-assign-select"
       value={d.effective_se_rep_id || ''}
+      onChange={(e) => onAssign(d.sheet_key, e.target.value)}
+    >
+      <option value="">Unassigned</option>
+      {reps.map((r) => (
+        <option key={r.id} value={r.id}>
+          {r.name}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+export function BackupSeAssignSelect({ d, reps, onAssign }) {
+  return (
+    <select
+      className="backup-se-assign-select"
+      title={d.backup_note || undefined}
+      value={d.backup_se_rep_id || ''}
       onChange={(e) => onAssign(d.sheet_key, e.target.value)}
     >
       <option value="">Unassigned</option>

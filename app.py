@@ -100,7 +100,8 @@ def list_reps():
 def update_rep(rep_id):
     data = request.get_json(force=True)
     fields, values = [], []
-    for key in ("active", "slack_user_id", "email", "title", "notes", "arr_target"):
+    for key in ("active", "slack_user_id", "email", "title", "notes", "arr_target",
+                "product", "segment", "coverage_role", "region"):
         if key in data:
             fields.append(f"{key} = ?")
             values.append(data[key])
@@ -310,6 +311,21 @@ def assign_tech_forecast_se(sheet_key):
         c.execute(
             "UPDATE tech_forecast_deals SET assigned_se_rep_id = ? WHERE sheet_key = ?",
             (se_rep_id, sheet_key),
+        )
+    return jsonify({"ok": True})
+
+
+@app.route("/api/tech-forecast/<path:sheet_key>/assign-backup", methods=["POST"])
+def assign_tech_forecast_backup(sheet_key):
+    data = request.get_json(force=True)
+    se_rep_id = data.get("se_rep_id") or None
+    note = data.get("note") or None
+    with db.conn() as c:
+        c.execute(
+            "UPDATE tech_forecast_deals SET backup_se_rep_id = ?, backup_note = ?, "
+            "backup_assigned_at = CASE WHEN ? IS NOT NULL THEN datetime('now') ELSE NULL END "
+            "WHERE sheet_key = ?",
+            (se_rep_id, note, se_rep_id, sheet_key),
         )
     return jsonify({"ok": True})
 

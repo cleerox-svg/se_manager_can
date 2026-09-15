@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { assignSe } from '../../api.js';
+import { assignSe, assignBackupSe } from '../../api.js';
 import { toast } from '../../toast.js';
 import DealsTable from './DealsTable.jsx';
-import { DealFlags, SeAssignSelect, fmtMoney, forecastStatusBadge, oppLink, presalesStageBadge } from './dealHelpers.jsx';
+import { DealFlags, SeAssignSelect, BackupSeAssignSelect, fmtMoney, oppLink, presalesStageBadge } from './dealHelpers.jsx';
 
 function pctBar(pct, opts = {}) {
   const { modifier = '', countLabel = '' } = opts;
@@ -92,13 +92,15 @@ function opportunityCell(d) {
   );
 }
 
-function buildWrapUpColumns(reps, onAssign) {
+function buildWrapUpColumns(reps, onAssign, onAssignBackup) {
   return [
     { key: 'opportunity', header: 'Opportunity', render: opportunityCell },
     { key: 'presales_stage', header: 'Presales Stage', render: (d) => presalesStageBadge(d.presales_stage) },
-    { key: 'forecast_status', header: 'Forecast Status', render: (d) => forecastStatusBadge(d.forecast_status) },
+    { key: 'confidence', header: 'Confidence', render: (d) => d.confidence || '-' },
+    { key: 'billing_state_province', header: 'Billing State/Province', render: (d) => d.billing_state_province || '-' },
     { key: 'amount', header: 'Amount', render: (d) => fmtMoney(d.amount) },
     { key: 'se', header: 'SE', render: (d) => <SeAssignSelect d={d} reps={reps} onAssign={onAssign} /> },
+    { key: 'backup_se', header: 'Backup SE', render: (d) => <BackupSeAssignSelect d={d} reps={reps} onAssign={onAssignBackup} /> },
     { key: 'flags', header: 'Flags', render: (d) => <DealFlags d={d} /> },
   ];
 }
@@ -132,7 +134,20 @@ export default function WrapUpRisk({ deals, reps, onAssigned }) {
     }
   }
 
-  const wrapUpColumns = buildWrapUpColumns(reps, handleAssign);
+  async function handleAssignBackup(sheetKey, value) {
+    setBusy(true);
+    try {
+      await assignBackupSe(sheetKey, value ? Number(value) : null, null);
+      toast('Backup SE assignment updated', 'success');
+      await onAssigned?.();
+    } catch {
+      toast('Failed to update backup SE assignment', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const wrapUpColumns = buildWrapUpColumns(reps, handleAssign, handleAssignBackup);
 
   return (
     <div className="card" id="risk-section">

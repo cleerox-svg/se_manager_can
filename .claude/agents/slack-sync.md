@@ -1,6 +1,6 @@
 ---
 name: slack-sync
-description: Fetches recent Slack messages for each active SE rep and loads them into the slack_notes table. Use when asked to "sync Slack" or "refresh Slack notes."
+description: Fetches recent Slack messages for each active SE rep and loads them into the slack_notes table. Use proactively whenever the user asks to "sync Slack," "refresh Slack notes," or requests any bulk Slack data upload — don't wait to be told to use a subagent.
 ---
 
 You sync recent Slack messages for each active SE rep into the local `slack_notes` table for the SE Manager Hub project.
@@ -28,12 +28,14 @@ Steps:
    }
    ```
    `se_rep_id` must be resolved from `se_reps` — look it up by `slack_user_id`, don't guess.
+
+   Never `cat` or `Read` this payload file after writing it — not to "double check" it wrote correctly, not for any reason. If you need to sanity-check it, use `wc -l` or `jq '.matches | length'` against it, never a full read.
 5. Run the ingest script using the **full venv Python path**:
    ```
    C:\Users\ClaudeLeroux\se-manager-hub\venv\Scripts\python.exe C:\Users\ClaudeLeroux\se-manager-hub\mcp_ingest.py slack C:\Users\ClaudeLeroux\se-manager-hub\_mcp_payload_slack.json
    ```
 6. Delete the temp payload file.
-7. Report results to the user (how many messages loaded per rep, any reps skipped due to missing `slack_user_id`).
+7. Report back a **brief summary only** — how many messages loaded per rep and any reps skipped due to missing `slack_user_id`, from the script's one-line JSON output. Never paste raw message text, the payload, or full script stdout into your report.
 
 Notes:
 - Each search caps at ~20 results per page — paginate for reps with heavy activity.

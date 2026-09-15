@@ -1,17 +1,9 @@
 import { useState } from 'react';
-import { assignSe } from '../../api.js';
+import { assignSe, assignBackupSe } from '../../api.js';
 import { toast } from '../../toast.js';
 import DealsTable from './DealsTable.jsx';
-import {
-  DealFlags,
-  SeAssignSelect,
-  fmtMoney,
-  forecastStatusBadge,
-  oppLink,
-  presalesStageBadge,
-  salesStageBadge,
-  truncate,
-} from './dealHelpers.jsx';
+import OpportunityCard from './OpportunityCard.jsx';
+import { fmtMoney, oppLink, presalesStageBadge } from './dealHelpers.jsx';
 
 const QUARTER_BUCKETS = [
   { key: 'overdue', label: 'Overdue' },
@@ -41,39 +33,13 @@ function opportunityCell(d) {
   );
 }
 
-function notesCell(text) {
-  return (
-    <span
-      title={text || ''}
-      style={{ maxWidth: 220, fontSize: '.78rem', color: 'var(--text-secondary)', display: 'inline-block' }}
-    >
-      {truncate(text, 90) || '-'}
-    </span>
-  );
-}
-
 function buildNeedsLeadSeColumns() {
   return [
     { key: 'opportunity', header: 'Opportunity', render: opportunityCell },
     { key: 'presales_stage', header: 'Presales Stage', render: (d) => presalesStageBadge(d.presales_stage) },
-    { key: 'forecast_status', header: 'Forecast Status', render: (d) => forecastStatusBadge(d.forecast_status) },
+    { key: 'confidence', header: 'Confidence', render: (d) => d.confidence || '-' },
+    { key: 'billing_state_province', header: 'Billing State/Province', render: (d) => d.billing_state_province || '-' },
     { key: 'amount', header: 'Amount', render: (d) => fmtMoney(d.amount) },
-  ];
-}
-
-function buildInspectColumns(reps, onAssign) {
-  return [
-    { key: 'opportunity', header: 'Opportunity', render: opportunityCell },
-    { key: 'presales_stage', header: 'Presales Stage', render: (d) => presalesStageBadge(d.presales_stage) },
-    { key: 'forecast_status', header: 'Forecast Status', render: (d) => forecastStatusBadge(d.forecast_status) },
-    { key: 'amount', header: 'Amount', render: (d) => fmtMoney(d.amount) },
-    { key: 'se', header: 'SE', render: (d) => <SeAssignSelect d={d} reps={reps} onAssign={onAssign} /> },
-    { key: 'flags', header: 'Flags', render: (d) => <DealFlags d={d} /> },
-    { key: 'stage', header: 'Stage', render: (d) => salesStageBadge(d.sales_stage) },
-    { key: 'tech_win_date', header: 'Tech win date', render: (d) => d.technical_win_date || '-' },
-    { key: 'pre_sales_notes', header: 'Pre-sales notes', render: (d) => notesCell(d.pre_sales_notes) },
-    { key: 'pre_sales_next_steps', header: 'Pre-sales next steps', render: (d) => notesCell(d.pre_sales_next_steps) },
-    { key: 'se_manager_notes', header: 'SE manager notes', render: (d) => notesCell(d.se_manager_notes) },
   ];
 }
 
@@ -99,8 +65,20 @@ export default function LookForwardInspect({ deals, reps, onAssigned }) {
     }
   }
 
+  async function handleAssignBackup(sheetKey, value) {
+    setBusy(true);
+    try {
+      await assignBackupSe(sheetKey, value ? Number(value) : null, null);
+      toast('Backup SE assignment updated', 'success');
+      await onAssigned?.();
+    } catch {
+      toast('Failed to update backup SE assignment', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const needsLeadSeColumns = buildNeedsLeadSeColumns();
-  const inspectColumns = buildInspectColumns(reps, handleAssign);
 
   return (
     <>
@@ -132,8 +110,16 @@ export default function LookForwardInspect({ deals, reps, onAssigned }) {
                   <summary>
                     {b.label} · {b.items.length} deal{b.items.length === 1 ? '' : 's'} · {fmtMoney(bTotal)}
                   </summary>
-                  <div className="table-scroll">
-                    <DealsTable deals={b.items} columns={inspectColumns} />
+                  <div className="opp-card-list">
+                    {b.items.map((d) => (
+                      <OpportunityCard
+                        key={d.sheet_key || d.opportunity_id}
+                        d={d}
+                        reps={reps}
+                        onAssign={handleAssign}
+                        onAssignBackup={handleAssignBackup}
+                      />
+                    ))}
                   </div>
                 </details>
               );

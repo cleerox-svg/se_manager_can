@@ -63,9 +63,20 @@ export function generatePrereadDraft() {
   return API.post('/api/tech-forecast/preread/draft', {});
 }
 
+export function getSfdcUpdates() {
+  return API.get('/api/tech-forecast/sfdc-updates');
+}
+
 export function assignSe(sheetKey, seRepId) {
   return API.post(`/api/tech-forecast/${encodeURIComponent(sheetKey)}/assign-se`, {
     se_rep_id: seRepId,
+  });
+}
+
+export function assignBackupSe(sheetKey, seRepId, note) {
+  return API.post(`/api/tech-forecast/${encodeURIComponent(sheetKey)}/assign-backup`, {
+    se_rep_id: seRepId,
+    note,
   });
 }
 

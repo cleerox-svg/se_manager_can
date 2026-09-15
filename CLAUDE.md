@@ -26,6 +26,22 @@ Store alias and fails.
   Team page's active/inactive flag governs who counts as "current team" for
   review generation.
 
+## Context economy — keep data out of the conversation
+
+Never `cat`, `Read`, or otherwise load a full CSV/JSON data file into the
+conversation — this includes the `_mcp_payload_<kind>.json` temp payloads and
+any exported sheet/Slack data. If you need to sanity-check a data file, use
+`head -20`, `wc -l`, or `jq '.foo'` against it — never a full read. This is a
+hard rule, not a style preference: a single sheet payload can be tens of
+thousands of tokens, and reading it "just to check" defeats the entire point
+of the MCP-assisted sync design below.
+
+`mcp_ingest.py` deliberately prints one line of JSON — the sync counts, not
+the rows. Never change it to print full row data, and never paste raw sheet
+or Slack payload contents back into a chat response — a short summary
+(rows synced/unchanged/deleted, any errors) is the only thing that should
+ever leave the script and reach the user.
+
 ## MCP-assisted sync (no credentials needed)
 
 `sheets_sync.py` and `slack_sync.py` each have two entry points: a
@@ -112,12 +128,16 @@ staged) instead of as the old middle grouping level. Don't add it back to
 
 The sheet's query isn't scoped to our team only — it also carries deals
 whose Opportunity Owner: Manager is Greg Rainbird, a different sales org.
-Per Claude Leroux (2026-09-02), `tech_forecast_sync.py` drops any row where
-that field matches (`_EXCLUDED_OWNER_MANAGERS`), even when one of our own
-Lead SEs is still attached (e.g. Luis Santos, since gone inactive) — those
-deals aren't ours to track on this page regardless of who's listed as
-Lead SE. If another manager's team shows up mixed in later, add them to
-that same set rather than special-casing Lead SE.
+`tech_forecast_sync.py` no longer drops those rows; instead it tags any row
+where that field matches (`_OTHER_ORG_MANAGER_TAGS`, a manager → `(product,
+segment)` mapping) with `product`/`segment` values so they stay visible on
+the page but are clearly marked as belonging to a different org — even when
+one of our own Lead SEs is still attached (e.g. Luis Santos, since gone
+inactive). `product`/`segment` are re-derived on every sync (unlike the
+manual `assigned_se_rep_id`/`backup_se_rep_id` overrides, which a sync must
+never clobber) and aren't part of the row fingerprint, so tagging alone
+never triggers spurious staleness. If another manager's team shows up mixed
+in later, add them to that same mapping rather than special-casing Lead SE.
 Staleness is snapshot-diff based, not date-parsed: each sync compares the
 incoming Pre-Sales Next Steps text against the value stored from the
 *previous* sync and sets `notes_stale` on the row if unchanged.
@@ -204,6 +224,17 @@ revisit whether to upgrade this to an actual LLM call (reusing `reviews.py`'s
 `_make_client` pattern) — the user's answer was "heuristic now," not a
 permanent rejection of the LLM path.
 
+Per Claude Leroux (2026-09-14), the Actions page's "SFDC Updates" card
+(`GET /api/tech-forecast/sfdc-updates`, backed by
+`tech_forecast_report.build_sfdc_updates`/`draft_sfdc_note`) is the same
+"heuristic now" call: rule-based note drafting, not an LLM call, for the
+same `LITELLM_API_KEY`-not-configured reason as `build_discussion_question`
+above. `draft_sfdc_note` also deliberately surfaces the newest dated note
+entry verbatim rather than synthesizing new prose from it — reusing whatever
+the SE actually wrote avoids fabricating claims about a deal and keeps the
+drafted note in the user's own words/patterns, which matters more here since
+this note is meant to be pasted straight into Salesforce.
+
 ## Git workflow
 
 **No GitHub by default** — work stays local only. Local `git commit` is fine;
@@ -218,20 +249,50 @@ Always confirm before pushing again outside of an explicitly authorized task.
 
 ## Sub-agents
 
-Three Claude Code custom agents live in `.claude/agents/` and are auto-loaded in every Claude Code session opened against this project directory:
+**Standing rule, not a reminder: for any data upload, sync, or bulk file
+work on this project, delegate to the matching subagent below — never run
+the fetch → payload → ingest flow inline in the main thread.** This applies
+every session, unprompted; don't wait for the user to say "use a subagent."
+
+Four Claude Code custom agents live in `.claude/agents/` and are auto-loaded in every Claude Code session opened against this project directory:
 
 | Agent | File | Trigger |
 |---|---|---|
 | `tech-forecast-sync` | `.claude/agents/tech-forecast-sync.md` | "sync tech forecast", "refresh tech forecast" |
 | `deals-sync` | `.claude/agents/deals-sync.md` | "sync deals", "refresh pipeline" |
+| `closed-deals-sync` | `.claude/agents/closed-deals-sync.md` | "sync closed deals", "refresh closed deals" |
 | `slack-sync` | `.claude/agents/slack-sync.md` | "sync Slack", "refresh Slack notes" |
 
 Each agent handles the full MCP-assisted sync flow for its data type: confirm live tab name/gid, fetch data, write temp JSON payload, run `mcp_ingest.py` via `venv/Scripts/python.exe`, delete temp file, report result. Tab gid values are stable even when tab names change — agents always confirm the live name via `get_spreadsheet_info` before reading.
+
+Every agent must report back to the main thread with a **brief summary
+only** — synced/unchanged/deleted counts and any errors, never the raw
+payload, full script stdout, or row-level data. If a subagent's reply starts
+looking like a data dump, that's a bug in the agent's instructions to fix,
+since it erases the whole point of delegating.
+
+The `/sync-se-hub` skill (`.claude/skills/sync-se-hub/SKILL.md`) is the slash-command entry point — it dispatches to these four agents in parallel (all four by default, or a subset if the user names specific kinds) rather than duplicating any sync logic itself.
 
 ## Docs
 
 Always update README.md after any non-trivial feature change. Work in small
 chunks with a visible task list.
+
+## progress.md — surviving context compaction
+
+For any task that spans multiple steps or sessions (a multi-phase migration,
+a multi-file refactor, anything likely to hit a context compaction before
+it's done), maintain `progress.md` in the project root with three sections:
+**Completed** (what's done, one line each), **Next steps** (what's left, in
+order), and **Key IDs** (file paths, gids, opportunity IDs, PR/branch names —
+anything you'd otherwise have to re-derive). Update it after each meaningful
+step, not just at the end.
+
+After a compaction event, read `progress.md` first, before re-running any
+investigation (`git log`, re-reading files, re-fetching sheet data) — it
+should contain enough to resume without redoing that work. Delete or clear
+the file's contents once the task it tracks is fully done; it's a working
+scratchpad for one task, not a running log.
 
 ## Key files
 
@@ -242,7 +303,7 @@ chunks with a visible task list.
 | `sheets_sync.py` | Google Sheets "Lead SE Pipeline SFDC" tab → `deals` table |
 | `closed_deals_sync.py` | Google Sheets "Canada SE Closed This Fiscal Year" tab (closed-deal export, Won and Lost, technical-win flag) → `closed_deals` table |
 | `tech_forecast_sync.py` | Google Sheets "Claude This q and next" tab (Technical Forecast pipeline, grouped Lead SE > Deal Forecast Status, Presales Stage flat per-deal) → `tech_forecast_deals` table; also captures the daily snapshot used for week-over-week deltas |
-| `tech_forecast_report.py` | Pure aggregation/report logic for the Technical Forecast page + Slack preread (bucket totals, key metrics, top deals w/ fiscal-quarter bucket + heuristic discussion question, weekly deltas, needs-Lead-SE list, missing-notes list) — no Flask dependency, reused by `app.py` and `tech_forecast_sync.py` |
+| `tech_forecast_report.py` | Pure aggregation/report logic for the Technical Forecast page + Slack preread (bucket totals, key metrics, top deals w/ fiscal-quarter bucket + heuristic discussion question, weekly deltas, needs-Lead-SE list, missing-notes list) and the Actions page's SFDC Updates card (`build_sfdc_updates`/`draft_sfdc_note` — rule-based per-opportunity Salesforce note drafts) — no Flask dependency, reused by `app.py` and `tech_forecast_sync.py` |
 | `slack_sync.py` | Slack `search.messages` → `slack_notes` table |
 | `mcp_ingest.py` | CLI bridge — loads MCP-fetched JSON into the DB, no credentials needed |
 | `seed_arr_targets.py` | One-off: sets `se_reps.arr_target` by name (FY26 H2: Sean/Rishika $2.5M, Valentin/Nic $1.5M) |
