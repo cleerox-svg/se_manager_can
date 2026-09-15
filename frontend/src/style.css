@@ -20,15 +20,38 @@
   --okta-blue-dim: rgba(0,125,193,.15);
   --okta-navy:     #00297A;
 
+  /* Status hues are per-theme, not shared: these are stepped for the navy
+     grounds above and are re-stepped in the light-mode block for white. A
+     single shared set is what left amber at 2.03:1 on the light theme. */
   --green:  #00C58E;
   --amber:  #F5A623;
-  --red:    #E03131;
+  --red:    #FF6B6B;   /* #E03131 measured 3.71:1 on --bg-card; this is 6.03:1 */
   --purple: #9B6BFA;
   --teal:   #00B4C8;
 
+  /* Chip fills, derived per theme so a badge background tracks its own text
+     colour instead of staying a dark-theme tint on a white card. */
+  --green-dim:  rgba(0,197,142,.14);
+  --amber-dim:  rgba(245,166,35,.14);
+  --red-dim:    rgba(255,107,107,.15);
+  --purple-dim: rgba(155,107,250,.14);
+
+  /* Presales stage is ordinal (1 Qualify -> 6 Technical Win), so it gets one
+     hue stepped light-to-dark rather than unrelated categorical colours —
+     the ordering then reads off the chart without consulting the legend.
+     Strictly monotonic in lightness; verify before editing a step. */
+  --stage-1: #123A5C;
+  --stage-2: #1B5A8B;
+  --stage-3: #2A86C2;
+  --stage-4: #5BB0E0;
+  --stage-5: #9BD4F5;
+  /* "Untagged" means absence of data, so it must recede rather than compete —
+     it is deliberately the lowest-contrast fill on the chart. */
+  --stage-none: #3A4A60;
+
   --text-primary:   #E8EEF5;
   --text-secondary: #7B9CB5;
-  --text-muted:     #4A6580;
+  --text-muted:     #7E98B3;   /* was #4A6580 — 2.76:1 on a card, now 5.60:1 */
   --text-accent:    #00A4E0;
 
   --radius:    8px;
@@ -184,11 +207,26 @@ tr.clickable { cursor: pointer; }
 /* ── Badges ──────────────────────────────────────────────────────────────── */
 .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 20px; font-size: .68rem; font-weight: 600; white-space: nowrap; }
 .badge-blue   { background: var(--okta-blue-dim); color: var(--okta-blue-lt); }
-.badge-green  { background: rgba(0,197,142,.14); color: var(--green); }
-.badge-amber  { background: rgba(245,166,35,.14); color: var(--amber); }
-.badge-red    { background: rgba(224,49,49,.14); color: var(--red); }
-.badge-purple { background: rgba(155,107,250,.14); color: var(--purple); }
+.badge-green  { background: var(--green-dim); color: var(--green); }
+.badge-amber  { background: var(--amber-dim); color: var(--amber); }
+.badge-red    { background: var(--red-dim); color: var(--red); }
+.badge-purple { background: var(--purple-dim); color: var(--purple); }
 .badge-muted  { background: var(--bg-tag); color: var(--text-muted); }
+
+/* Money and counts line up only if the digits are the same width and the
+   column is right-aligned; without both, two amounts in the same column can't
+   be compared without reading each one. */
+.col-num { text-align: right; font-variant-numeric: tabular-nums; }
+.stat-value, .winrate-rep-pct, .goal-bar-label .pct { font-variant-numeric: tabular-nums; }
+
+/* Shown in place of a chart that has no data yet, so an empty plot reads as
+   "nothing recorded" rather than "this is broken". */
+.chart-empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 5px; text-align: center; min-height: 180px; padding: 20px;
+}
+.chart-empty strong { font-size: .86rem; font-weight: 600; color: var(--text-primary); }
+.chart-empty span { font-size: .78rem; color: var(--text-muted); max-width: 34ch; line-height: 1.5; }
 
 /* ── Buttons / inputs ────────────────────────────────────────────────────── */
 .btn {
@@ -288,22 +326,45 @@ body.present-mode .page { padding-top: 50px; }
 
 /* ── Light mode ──────────────────────────────────────────────────────────── */
 body.light-mode {
-  --bg-app:        #FFFFFF;
+  /* Every surface used to be #FFFFFF, which flattened the whole UI onto one
+     sheet and broke two components outright: hover feedback (the hover colour
+     equalled the base colour) and the progress-bar track behind every ARR bar,
+     which made a rep at 0% render as empty space. Each surface now steps. */
+  --bg-app:        #F4F7FA;
   --bg-nav:        #FFFFFF;
   --bg-card:       #FFFFFF;
-  --bg-card-hover: #FFFFFF;
+  --bg-card-hover: #EDF3F9;
   --bg-input:      #FFFFFF;
   --bg-modal:      #FFFFFF;
-  --bg-tag:        #FFFFFF;
+  --bg-tag:        #EAF0F6;
 
-  --border:        #D8E1EC;
+  --border:        #D2DDE9;
   --border-active: #007DC1;
   --border-focus:  #00A4E0;
 
+  /* Re-stepped for a white ground; see the note in :root. */
+  --green:  #067A55;
+  --amber:  #9A6000;
+  --red:    #C92A2A;
+  --purple: #6C3FD4;
+  --teal:   #00707E;
+
+  --green-dim:  rgba(6,122,85,.12);
+  --amber-dim:  rgba(154,96,0,.13);
+  --red-dim:    rgba(201,42,42,.11);
+  --purple-dim: rgba(108,63,212,.11);
+
+  --stage-1: #D3E7F4;
+  --stage-2: #9CC9E6;
+  --stage-3: #5AA2D3;
+  --stage-4: #1E79B5;
+  --stage-5: #0B5680;
+  --stage-none: #A8B4C0;
+
   --text-primary:   #142235;
   --text-secondary: #4C6478;
-  --text-muted:     #8398AC;
-  --text-accent:    #007DC1;
+  --text-muted:     #57697C;   /* was #8398AC — 2.98:1, now 4.97:1 */
+  --text-accent:    #0A6CA8;   /* was #007DC1 — 4.46:1, just under AA */
 
   --depth-raised: inset 0 1px 0 rgba(255,255,255,.6), 0 4px 16px rgba(20,34,53,.08), 0 1px 4px rgba(20,34,53,.05);
   --depth-raised-hover: inset 0 1px 0 rgba(255,255,255,.7), 0 8px 28px rgba(20,34,53,.1), 0 2px 6px rgba(20,34,53,.06);

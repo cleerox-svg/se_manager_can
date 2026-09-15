@@ -87,7 +87,9 @@ function opportunityCell(d) {
   return (
     <>
       {oppLink(d.opportunity_name, d.opportunity_url)}
-      <div style={{ color: 'var(--text-muted)', fontSize: '.72rem' }}>AE: {d.opportunity_owner || '-'}</div>
+      {d.opportunity_owner && (
+            <div style={{ color: 'var(--text-muted)', fontSize: '.72rem' }}>AE: {d.opportunity_owner}</div>
+          )}
     </>
   );
 }
@@ -97,8 +99,7 @@ function buildWrapUpColumns(reps, onAssign, onAssignBackup) {
     { key: 'opportunity', header: 'Opportunity', render: opportunityCell },
     { key: 'presales_stage', header: 'Presales Stage', render: (d) => presalesStageBadge(d.presales_stage) },
     { key: 'confidence', header: 'Confidence', render: (d) => d.confidence || '-' },
-    { key: 'billing_state_province', header: 'Billing State/Province', render: (d) => d.billing_state_province || '-' },
-    { key: 'amount', header: 'Amount', render: (d) => fmtMoney(d.amount) },
+    { key: 'amount', header: 'Amount', numeric: true, render: (d) => fmtMoney(d.amount) },
     { key: 'se', header: 'SE', render: (d) => <SeAssignSelect d={d} reps={reps} onAssign={onAssign} /> },
     { key: 'backup_se', header: 'Backup SE', render: (d) => <BackupSeAssignSelect d={d} reps={reps} onAssign={onAssignBackup} /> },
     { key: 'flags', header: 'Flags', render: (d) => <DealFlags d={d} /> },

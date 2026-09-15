@@ -42,9 +42,6 @@ export default function TechForecast() {
   if (!data) {
     return (
       <>
-        <div className="section-header">
-          <h2>Technical Forecast</h2>
-        </div>
         <div className="empty-state">Loading...</div>
       </>
     );
@@ -61,7 +58,8 @@ export default function TechForecast() {
 
       <div className="section-header">
         <div>
-          <h2>Technical Forecast</h2>
+          {/* Page name comes from the topbar; this line keeps the sync status,
+              which is the part that actually changes. */}
           <div className="sub" style={{ color: 'var(--text-secondary)', fontSize: '.78rem' }}>
             Last synced: {data.last_synced_at ? new Date(data.last_synced_at).toLocaleString() : 'never'} — Presales Technical Win Process
           </div>

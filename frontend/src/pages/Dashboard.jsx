@@ -23,13 +23,27 @@ function fmtDate(d) {
 }
 
 const BUCKET_ORDER = ['Technical Win', 'Final Due Diligence', 'Validate Solution', 'Early Tech', 'Untagged'];
+// Presales stage is a progression (Early Tech -> Validate Solution -> Final Due
+// Diligence -> Technical Win), so these step along one hue instead of taking
+// four unrelated ones: the stack then reads in stage order without consulting
+// the legend. Untagged means "no stage recorded", so it takes the recessive
+// neutral — as a saturated grey it was the heaviest mark on the chart despite
+// carrying the least meaning.
 const BUCKET_COLORS = {
-  'Technical Win': 'var(--green)',
-  'Final Due Diligence': 'var(--okta-blue-lt)',
-  'Validate Solution': 'var(--purple)',
-  'Early Tech': 'var(--amber)',
-  Untagged: 'var(--text-muted)',
+  'Technical Win': 'var(--stage-4)',
+  'Final Due Diligence': 'var(--stage-3)',
+  'Validate Solution': 'var(--stage-2)',
+  'Early Tech': 'var(--stage-1)',
+  Untagged: 'var(--stage-none)',
 };
+
+// Recharts colours legend text with the series colour by default, which is
+// unreadable once the series are steps of one ramp — the lightest step is a
+// large-area fill, not a text colour. Identity stays with the swatch; the
+// label wears the theme's text token.
+function legendLabel(value) {
+  return <span style={{ color: 'var(--text-secondary)' }}>{value}</span>;
+}
 
 function moneyTick(v) {
   if (v >= 1000000) return '$' + (v / 1000000).toFixed(1) + 'M';
@@ -42,8 +56,12 @@ function TooltipCard({ active, payload, label }) {
   return (
     <div className="card" style={{ padding: '8px 12px', boxShadow: 'var(--depth-raised)' }}>
       <div style={{ fontSize: '.74rem', color: 'var(--text-secondary)', marginBottom: 4 }}>{label}</div>
+      {/* A swatch carries the series identity; the text stays on the theme's
+          ink, since the pale end of the stage ramp is a fill colour and not a
+          legible text colour. */}
       {payload.map((p) => (
-        <div key={p.name} style={{ fontSize: '.8rem', color: p.color }}>
+        <div key={p.name} style={{ fontSize: '.8rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ width: 9, height: 9, borderRadius: 2, background: p.color, flex: '0 0 auto' }} />
           {p.name}: {fmtMoney(p.value)}
         </div>
       ))}
@@ -89,10 +107,8 @@ export default function Dashboard() {
 
   return (
     <>
-      <div className="section-header">
-        <h2>Dashboard</h2>
-      </div>
-
+      {/* No page heading here — the topbar already names the page. Repeating
+          it cost ~60px above the fold on every screen. */}
       <div className="stat-grid">
         <div className="stat-card">
           <div className="stat-value">{summary ? summary.total : '-'}</div>
@@ -110,18 +126,25 @@ export default function Dashboard() {
 
       <div className="card">
         <div className="card-title">ARR trend</div>
+        {arrTrendData.length === 0 ? (
+          <div className="chart-empty">
+            <strong>No history yet</strong>
+            <span>A point is recorded each time the tech forecast syncs. The first line appears after two syncs.</span>
+          </div>
+        ) : (
         <ResponsiveContainer width="100%" height={280}>
           <AreaChart data={arrTrendData}>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
             <XAxis dataKey="date" stroke="var(--text-secondary)" fontSize={12} />
             <YAxis stroke="var(--text-secondary)" fontSize={12} tickFormatter={moneyTick} />
             <Tooltip content={<TooltipCard />} />
-            <Legend wrapperStyle={{ fontSize: '.78rem' }} />
-            <Area type="monotone" dataKey="Technical Win" stackId="1" stroke="var(--green)" fill="var(--green)" fillOpacity={0.35} />
-            <Area type="monotone" dataKey="In Flight" stackId="1" stroke="var(--okta-blue-lt)" fill="var(--okta-blue-lt)" fillOpacity={0.35} />
-            <Area type="monotone" dataKey="Untagged" stackId="1" stroke="var(--text-muted)" fill="var(--text-muted)" fillOpacity={0.35} />
+            <Legend wrapperStyle={{ fontSize: '.78rem' }} formatter={legendLabel} />
+            <Area type="monotone" dataKey="Technical Win" stackId="1" stroke="var(--stage-5)" fill="var(--stage-5)" fillOpacity={0.8} />
+            <Area type="monotone" dataKey="In Flight" stackId="1" stroke="var(--stage-3)" fill="var(--stage-3)" fillOpacity={0.8} />
+            <Area type="monotone" dataKey="Untagged" stackId="1" stroke="var(--stage-none)" fill="var(--stage-none)" fillOpacity={0.8} />
           </AreaChart>
         </ResponsiveContainer>
+        )}
       </div>
 
       <div className="card">
@@ -132,9 +155,13 @@ export default function Dashboard() {
             <XAxis dataKey="confidence" stroke="var(--text-secondary)" fontSize={12} />
             <YAxis stroke="var(--text-secondary)" fontSize={12} tickFormatter={moneyTick} />
             <Tooltip content={<TooltipCard />} />
-            <Legend wrapperStyle={{ fontSize: '.78rem' }} />
+            <Legend wrapperStyle={{ fontSize: '.78rem' }} formatter={legendLabel} />
             {BUCKET_ORDER.map((bucket) => (
-              <Bar key={bucket} dataKey={bucket} stackId="stage" fill={BUCKET_COLORS[bucket]} />
+              // 2px surface-coloured stroke separates adjacent stacked
+              // segments, which matters more now the fills are neighbouring
+              // steps of one hue rather than contrasting colours.
+              <Bar key={bucket} dataKey={bucket} stackId="stage" fill={BUCKET_COLORS[bucket]}
+                   stroke="var(--bg-card)" strokeWidth={2} />
             ))}
           </BarChart>
         </ResponsiveContainer>

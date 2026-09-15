@@ -198,10 +198,7 @@ export default function Actions() {
 
   return (
     <>
-      <div className="section-header">
-        <h2>Actions</h2>
-      </div>
-
+      {/* Page name comes from the topbar. */}
       {activeModule === null && <ActionCardGrid onSelect={setActiveModule} />}
       {activeModule === 'prep-message' && <PrepMessageModule onBack={() => setActiveModule(null)} />}
       {activeModule === 'sfdc-updates' && <SfdcUpdatesModule onBack={() => setActiveModule(null)} />}

@@ -14,7 +14,9 @@ export default function OpportunityCard({ d, reps, onAssign, onAssignBackup }) {
       <div className="opp-card-header">
         <div className="opp-card-header-main">
           {oppLink(d.opportunity_name, d.opportunity_url)}
-          <div style={{ color: 'var(--text-muted)', fontSize: '.72rem' }}>AE: {d.opportunity_owner || '-'}</div>
+          {d.opportunity_owner && (
+            <div style={{ color: 'var(--text-muted)', fontSize: '.72rem' }}>AE: {d.opportunity_owner}</div>
+          )}
         </div>
         <div className="opp-card-header-fields">
           <span>
@@ -25,10 +27,12 @@ export default function OpportunityCard({ d, reps, onAssign, onAssignBackup }) {
             <span className="opp-card-field-label">Confidence</span>
             {d.confidence || '-'}
           </span>
-          <span>
-            <span className="opp-card-field-label">Billing State/Province</span>
-            {d.billing_state_province || '-'}
-          </span>
+          {d.billing_state_province && (
+            <span>
+              <span className="opp-card-field-label">Billing State/Province</span>
+              {d.billing_state_province}
+            </span>
+          )}
           <span>
             <span className="opp-card-field-label">Amount</span>
             {fmtMoney(d.amount)}

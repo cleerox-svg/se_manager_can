@@ -19,8 +19,11 @@ export function truncate(text, n) {
 }
 
 export function presalesStageBadge(stage) {
+  // A deal that isn't staged yet gets a plain dash rather than an empty pill —
+  // a badge with nothing in it reads as a rendering fault.
+  if (!stage) return <span style={{ color: 'var(--text-muted)' }}>—</span>;
   const cls = stage === '6 - Technical Win' ? 'badge-green' : 'badge-blue';
-  return <span className={`badge ${cls}`}>{stage || '-'}</span>;
+  return <span className={`badge ${cls}`}>{stage}</span>;
 }
 
 export function salesStageBadge(stage) {
@@ -29,11 +32,16 @@ export function salesStageBadge(stage) {
 }
 
 export function DealFlags({ d }) {
+  // Flags carry a severity so the row that needs raising on Monday doesn't look
+  // identical to the row that's merely untidy: nobody owning the deal is worse
+  // than stale notes, which is worse than a missing strategy note.
+  // `notes_stale` is a SQLite integer, so it needs the !! — a bare `0 && ...`
+  // evaluates to 0 and React renders the character.
   return (
     <div className="pill-row">
-      {d.notes_stale && <span className="badge badge-amber">No update this week</span>}
-      {!d.pre_sales_next_steps && <span className="badge badge-amber">No TW Strategy</span>}
-      {d.needs_lead_se && <span className="badge badge-amber">No Lead SE (sheet)</span>}
+      {!!d.needs_lead_se && <span className="badge badge-red">No Lead SE</span>}
+      {!!d.notes_stale && <span className="badge badge-amber">No update this week</span>}
+      {!d.pre_sales_next_steps && <span className="badge badge-muted">No TW strategy</span>}
     </div>
   );
 }

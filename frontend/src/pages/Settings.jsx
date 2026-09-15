@@ -66,9 +66,6 @@ export default function Settings() {
   if (!settings) {
     return (
       <>
-        <div className="section-header">
-          <h2>Settings</h2>
-        </div>
         <div id="settings-content">
           <div className="empty-state">Loading...</div>
         </div>
@@ -78,9 +75,6 @@ export default function Settings() {
 
   return (
     <>
-      <div className="section-header">
-        <h2>Settings</h2>
-      </div>
       <div id="settings-content">
         <div className="card">
           <div className="card-title">Google Sheets — Team Tracking Sheet</div>

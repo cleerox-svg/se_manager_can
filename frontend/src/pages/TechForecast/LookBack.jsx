@@ -32,9 +32,9 @@ function RecentWinRow({ w }) {
     <tr>
       <td>
         {oppLink(w.opportunity_name, w.opportunity_url)}
-        {w.source === 'open' && (
+        {w.source === 'open' && w.opportunity_owner && (
           <div style={{ color: 'var(--text-muted)', fontSize: '.72rem' }}>
-            AE: {w.opportunity_owner || '-'}
+            AE: {w.opportunity_owner}
           </div>
         )}
       </td>
