@@ -12,7 +12,8 @@ import httpx
 
 from constants import STAGE_CLOSED_WON
 
-_MODEL = "claude-sonnet-4-6"
+# Defined in models.py so bedrock_agent.py and this module cannot drift.
+from models import LITELLM_MODEL as _MODEL
 
 _SYSTEM_PROMPT = """You are helping an Okta Sales Engineering manager prep for a FY26 H2 \
 Mid-Year Check-In conversation with one of their direct report Solutions Engineers. This is \

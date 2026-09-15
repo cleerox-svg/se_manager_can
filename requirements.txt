@@ -10,6 +10,10 @@ gspread~=6.2.1
 google-auth~=2.58.0
 slack_sdk~=3.44.1
 anthropic~=1.6.0
+# bedrock_agent.py's Converse loop. Was imported without being declared, so the
+# module ran wherever boto3 happened to be installed and failed on a clean
+# checkout.
+boto3~=1.43.95
 httpx~=0.28.1
 
 # Tests: `python3 -m pytest` from the repo root (config in pytest.ini).

@@ -14,7 +14,7 @@ import json
 
 import boto3
 
-_MODEL_ID = "us.anthropic.claude-sonnet-5"
+from models import BEDROCK_MODEL_ID as _MODEL_ID
 
 _SYSTEM_PROMPT = """You are an agent that computes SE (Solutions Engineer) performance metrics \
 from an Okta Sales Engineering team's local pipeline data. Use the provided tools to gather \

@@ -16,8 +16,13 @@ Store alias and fails.
   elsewhere, it's already handled in the connection layer.
 - All httpx clients calling the LiteLLM proxy need `verify=False` — Okta's
   corporate proxy does SSL inspection and breaks default cert verification.
-- Model names live in `reviews.py` as a constant (`_MODEL`) — never hardcode
-  a model string anywhere else.
+- Model identifiers live in `models.py` (`LITELLM_MODEL` for the LiteLLM proxy,
+  `BEDROCK_MODEL_ID` for `bedrock_agent.py`'s Converse loop) — never hardcode a
+  model string anywhere else. `reviews.py` still exposes `_MODEL`, now imported
+  from there. The two ids are not interchangeable: the Bedrock one is a
+  cross-region *inference profile* id whose `us.` prefix is part of the id on
+  that API and is coupled to the client's region, and is a different form from
+  the bare `anthropic.` prefix the Anthropic SDK's Bedrock client uses.
 - SFDC stage strings live in `constants.py` (`STAGE_CLOSED_WON`,
   `PRESALES_TECH_WIN`, `FORECAST_RISK`) — import them, never re-type the
   literal. The same rule applies to the three-step SE attribution precedence
@@ -446,6 +451,8 @@ scratchpad for one task, not a running log.
 | `slack_sync.py` | Slack `search.messages` → `slack_notes` table |
 | `mcp_ingest.py` | CLI bridge — loads MCP-fetched JSON into the DB, no credentials needed |
 | `seed_arr_targets.py` | One-off: sets `se_reps.arr_target` by name (FY26 H2: Sean/Rishika $2.5M, Valentin/Nic $1.5M) |
+| `models.py` | Canonical model identifiers — `LITELLM_MODEL`, `BEDROCK_MODEL_ID`; the only place a model string is written |
+| `bedrock_agent.py` | AWS Bedrock Converse tool-use loop computing SE metrics into `agent_metrics` (proof-of-concept; not imported by `app.py` yet). Auth via the existing Okta SSO → IAM Identity Center federation, no new credentials |
 | `reviews.py` | LiteLLM-backed review drafting — the LLM context splits Closed-WON from Closed-LOST so lost deals stay visible as SE evidence but never reach the revenue line |
 | `top_items.py` | Top Items weekly summary — pure scaffold/persistence helpers, no Flask dependency (`DEFAULT_WINS_LIMIT = 25`) |
 | `tests/` | pytest suite — run with `python3 -m pytest` (`venv/Scripts/python.exe -m pytest` on the user's machine) |
