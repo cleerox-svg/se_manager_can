@@ -11,6 +11,7 @@ Rules this file exists to enforce:
 """
 
 import sys
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -229,11 +230,15 @@ def seed_reference_data(database):
                    channel_id="C01", channel_name="se-canada",
                    text="Wrapped the Northwind workshop.", posted_at="2026-09-10T12:00:00")
 
+    # Dated relative to today so "the most recent snapshot before today" is
+    # true whatever the clock says, without making the CONTENT clock-dependent.
+    prior_snapshot_date = (date.today() - timedelta(days=14)).isoformat()
     with database.conn() as c:
         c.execute(
             "INSERT INTO tech_forecast_snapshots (snapshot_date, bucket_totals_json, deal_states_json) "
-            "VALUES ('2026-09-01', ?, ?)",
-            ('{"Commit": {"Validate Solution": {"amount": 300000.0, "count": 1}}}',
+            "VALUES (?, ?, ?)",
+            (prior_snapshot_date,
+             '{"Commit": {"Validate Solution": {"amount": 300000.0, "count": 1}}}',
              '{"oid:0081": {"sheet_key": "oid:0081", "opportunity_name": "Granite Peak Zero Trust",'
              ' "opportunity_id": "0081", "amount": 300000.0,'
              ' "presales_stage": "3 - Technical Scoping", "forecast_status": "Strong",'
