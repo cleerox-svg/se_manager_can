@@ -23,8 +23,12 @@ Steps:
    C:\Users\ClaudeLeroux\se-manager-hub\venv\Scripts\python.exe C:\Users\ClaudeLeroux\se-manager-hub\mcp_ingest.py closed_deals C:\Users\ClaudeLeroux\se-manager-hub\_mcp_payload_closed_deals.json
    ```
 5. Delete the temp payload file.
-6. Report back a **brief summary only** — synced/unchanged/deleted counts and any errors from the script's one-line JSON output. Never paste the raw payload, full script stdout, or row-level data into your report.
+6. Report back a **brief summary only** — the script's one-line JSON counts (`synced`, `unchanged`, `deleted`, `unparsed_amounts`) and any errors. Never paste the raw payload, full script stdout, or row-level data into your report.
 
 Notes:
-- This tab is nested three levels deep (Team Member Name > Team Role > Region), unlike the two-level open pipeline tab — `closed_deals_sync.py` already handles the group-header stripping (`_GROUP_SUFFIX_RE`), you don't need to pre-process rows yourself.
+- This tab is nested three levels deep (Team Member Name > Team Role > Region), unlike the two-level open pipeline tab — `closed_deals_sync.py` already handles the group-header stripping via the shared `sheet_parse.strip_group_label` (both the `(USD 1,099,753.82)` running-total suffix and the `(9)` row-count form), you don't need to pre-process rows yourself. A bare `-` group cell lands as `"Unassigned"`, not as a rep name.
+- A non-zero `unparsed_amounts` means non-blank money cells failed to parse (money dropped silently) — call it out in the report.
+- If the script aborts with a **shrink guard** error (payload >20% smaller than what's stored), that almost always means a truncated fetch: the `A1:Z1000` range or a pagination cursor cut the grid short. Re-fetch with a wider range. Only add `--allow-shrink` when the user confirms the tab really did shrink that much (e.g. a fiscal-year rollover emptying it).
+- A **header mismatch** error names the missing columns: the tab or range is wrong (the grid may start below row 1), not the sync.
+- Rows are keyed by Salesforce opportunity ID when the sheet carries one, so **the first sync after the re-key change reports an unusually large synced + deleted count**. That is expected, once — report it as such rather than re-running.
 - The tab covers **all** closed deals (Won and Lost), not just wins — `sales_stage` carries both values. `tech_win` is a separate flag driven by the flat Presales Stage column.

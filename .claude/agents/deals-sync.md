@@ -23,4 +23,13 @@ Steps:
    C:\Users\ClaudeLeroux\se-manager-hub\venv\Scripts\python.exe C:\Users\ClaudeLeroux\se-manager-hub\mcp_ingest.py deals C:\Users\ClaudeLeroux\se-manager-hub\_mcp_payload_deals.json
    ```
 5. Delete the temp payload file.
-6. Report back a **brief summary only** — synced/unchanged/deleted counts and any errors from the script's one-line JSON output. Never paste the raw payload, full script stdout, or row-level data into your report.
+6. Report back a **brief summary only** — the script's one-line JSON counts (`synced`, `unchanged`, `deleted`, `overrides_carried`, `unparsed_amounts`) and any errors. Never paste the raw payload, full script stdout, or row-level data into your report.
+
+Notes:
+
+- This tab has no per-row fingerprint, so `unchanged` is always 0 and every payload row counts as `synced` — that is not a sign every row changed.
+- A non-zero `unparsed_amounts` means non-blank money cells failed to parse (money dropped silently) — call it out in the report.
+- If the script aborts with a **shrink guard** error (payload >20% smaller than what's stored), that almost always means a truncated fetch: the `A1:Z1000` range or a pagination cursor cut the grid short. Re-fetch with a wider range. Do **not** add `--allow-shrink` to make the error go away — only use it when the user confirms the sheet really did shrink that much.
+- A **header mismatch** error names the missing columns: the tab or range is wrong (the grid may start below row 1), not the sync.
+- Rows are keyed by Salesforce opportunity ID when the sheet carries one, so **the first sync after the re-key change reports an unusually large synced + deleted count**, and the tech-forecast week-over-week delta shows deals as dropped and re-added, once. Manual overrides are carried across (`overrides_carried`). Report it as expected churn; don't re-run to "fix" it.
+- New Lead SE names are inserted into `se_reps` as **inactive** — mention any that appear so the user can review and activate them.

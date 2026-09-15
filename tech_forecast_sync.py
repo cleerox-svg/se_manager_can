@@ -383,6 +383,11 @@ def load_rows(db, rows: list[dict], allow_shrink: bool = False) -> dict:
 
     if changed_count or deleted_count:
         _capture_snapshot(db)
+        # Snapshots carry a full per-deal state blob each day, so they grow
+        # without bound; pruning here keeps it to the one place that adds a
+        # row. build_weekly_deltas only ever reads the most recent prior
+        # snapshot, and keep_min guards the delta baseline regardless of age.
+        db.prune_snapshots()
     return {
         "synced": changed_count,
         "unchanged": unchanged_count,

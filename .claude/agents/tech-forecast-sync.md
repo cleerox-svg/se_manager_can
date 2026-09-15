@@ -23,9 +23,13 @@ Steps:
    C:\Users\ClaudeLeroux\se-manager-hub\venv\Scripts\python.exe C:\Users\ClaudeLeroux\se-manager-hub\mcp_ingest.py tech_forecast C:\Users\ClaudeLeroux\se-manager-hub\_mcp_payload_tech_forecast.json
    ```
 5. Delete the temp payload file.
-6. Report back a **brief summary only** — synced/unchanged/deleted counts and any errors from the script's one-line JSON output. Never paste the raw payload, full script stdout, or row-level data into your report.
+6. Report back a **brief summary only** — the script's one-line JSON counts (`synced`, `unchanged`, `deleted`, `overrides_carried`, `unparsed_amounts`) and any errors. Never paste the raw payload, full script stdout, or row-level data into your report.
 
 Notes:
 - Rows with a blank Opportunity Name are subtotal/group-header rows — `tech_forecast_sync.py` already filters these out, you don't need to pre-filter them yourself.
-- Delta detection is built into the sync — unchanged rows are skipped automatically, don't try to diff anything yourself before calling the ingest script.
+- Delta detection is built into the sync — unchanged rows are skipped automatically, don't try to diff anything yourself before calling the ingest script. (`notes_stale` and the cross-org product/segment tags are still re-evaluated for skipped rows.)
+- A non-zero `unparsed_amounts` means non-blank money cells failed to parse (money dropped silently) — call it out in the report.
+- If the script aborts with a **shrink guard** error (payload >20% smaller than what's stored), that almost always means a truncated fetch: the `A1:Z1000` range or a pagination cursor cut the grid short. Re-fetch with a wider range. Do **not** add `--allow-shrink` to make the error go away — only use it when the user confirms the sheet really did shrink that much.
+- A **header mismatch** error names the missing columns: the tab or range is wrong (the grid may start below row 1), not the sync.
+- Rows are keyed by Salesforce opportunity ID when the sheet carries one, so **the first sync after the re-key change reports an unusually large synced + deleted count**, and that week's delta shows deals as dropped and re-added. Manual SE/backup-SE assignments are carried onto the replacement rows (`overrides_carried`), so nothing is lost. Expected once — report it as such, don't re-run to "fix" it.
 - Don't skip step 1 even if you think you remember the tab name from a prior session — it changes.

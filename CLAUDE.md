@@ -18,6 +18,12 @@ Store alias and fails.
   corporate proxy does SSL inspection and breaks default cert verification.
 - Model names live in `reviews.py` as a constant (`_MODEL`) — never hardcode
   a model string anywhere else.
+- SFDC stage strings live in `constants.py` (`STAGE_CLOSED_WON`,
+  `PRESALES_TECH_WIN`, `FORECAST_RISK`) — import them, never re-type the
+  literal. The same rule applies to the three-step SE attribution precedence
+  (`attribution.py`) and to grouped-sheet parsing (`sheet_parse.py`): one
+  copy, imported. Both shipped bugs recorded below came from a duplicated
+  literal/query drifting out of sync with its siblings.
 - Slack sync must use a **user token**, not a bot token — `search.messages`
   is user-token-only in the Slack Web API.
 - Jordan Taylor (and any other departed rep) must never be presented as an
@@ -58,8 +64,52 @@ When asked to sync, in a live Claude Code session:
 2. Write a temp JSON payload matching `mcp_ingest.py`'s docstring shape to
    `_mcp_payload_<kind>.json` in the project root (already gitignored).
 3. Run `py mcp_ingest.py deals <file>`, `py mcp_ingest.py closed_deals <file>`,
-   or `py mcp_ingest.py slack <file>`.
+   `py mcp_ingest.py tech_forecast <file>`, or `py mcp_ingest.py slack <file>`
+   (see the venv-path note near the end of this section — from a Bash tool it's
+   `venv/Scripts/python.exe`, not `py`).
 4. Delete the temp file afterward.
+
+What a sync returns and what can stop it:
+
+- Result keys. The three sheet syncs return `synced` / `unchanged` /
+  `deleted` / `overrides_carried` / `unparsed_amounts` (`deals` has no
+  per-row fingerprint, so its `unchanged` is always 0 and every payload row
+  counts as `synced`; `closed_deals` omits `overrides_carried` — that table
+  has no manual override columns). `unparsed_amounts` counts non-blank money
+  cells that failed to parse, i.e. money silently dropped — mention it in the
+  report if it's non-zero. Slack returns `synced` / `new` / `updated` /
+  `unchanged`, counting rows actually WRITTEN rather than matches fetched (a
+  re-run used to report a full lookback window of "new" activity).
+- Shrink guard. A sync aborts with a `RuntimeError` when the payload has
+  more than 20% fewer rows than are stored
+  (`sheet_parse.guard_row_shrink` / `MIN_ROW_RETENTION_RATIO`), because a
+  truncated fetch is indistinguishable from a shrunken sheet and the delete
+  pass would hard-delete the missing rows. The usual cause is the `A1:Z1000`
+  read range or a pagination cursor cutting the grid short: re-fetch wider
+  first. Only when the sheet really did shrink (e.g. a fiscal-year rollover
+  emptying the closed tab) pass `--allow-shrink` to `mcp_ingest.py`
+  (`allow_shrink=True` on the `sync_*_from_values` functions). Never reach
+  for the flag to make an error go away.
+- Header mismatch. `sheet_parse.map_header` raises and names the missing
+  columns when the header row doesn't match the expected layout, instead of
+  reporting a cheerful `{"synced": 0}`. If that fires, the tab or range is
+  wrong (the grid may start below row 1), not the sync.
+- **One-time re-key churn.** Rows are now keyed by Salesforce opportunity ID
+  (`oid:` prefix) when the sheet carries one, falling back to a composite
+  built from the *parsed* ISO date (`sheet_parse.build_sheet_key`). The old
+  keys embedded mutable fields, so a slipped close date, an advanced stage or
+  a merely reformatted date cell deleted and reinserted the row — taking
+  `assigned_se_rep_id`/`backup_se_rep_id`/`backup_note` with it. The first
+  sync after this change re-keys existing rows, so expect one run with a
+  large `synced` + `deleted` count and one week-over-week delta showing deals
+  as dropped and re-added. That is expected, once. Manual overrides are
+  carried across the re-key (`sheet_parse.match_rekeyed_rows`, reported as
+  `overrides_carried`), so nothing is lost — report the churn as expected
+  rather than re-syncing to "fix" it.
+- New rep names discovered in the sheet are inserted `active = 0` (pending
+  review on the Team page), never active. A typo'd or unfamiliar name must
+  not become a current direct report on its own — same rule as the
+  departed-rep rule above.
 
 The Team Tracking Sheet's tabs get renamed by the user from time to time —
 don't trust hardcoded tab names in this file, always confirm live via
@@ -82,30 +132,43 @@ authenticate and use the dedicated `mcp__google_sheets__*` tools instead:
 levels deep rather than SFDC's two: Team Member Name > Team Role > Region
 (`_GROUP_LEVELS = ("rep_name", "team_role", "region")`). Each group-header
 cell carries a running dollar total suffix instead of a row count, e.g.
-`"Sean Keleher (USD 1,099,753.82)"`, so it has its own strip regex
-(`_GROUP_SUFFIX_RE`) rather than reusing `_strip_group_count`. Team Role and
-Region are grouping-only fields used to walk the structure — neither is
-persisted to `closed_deals`. Stage carries both "10 - Closed/Won" and a
-Closed/Lost value — the tab covers all closed deals, not won deals only.
-Presales Stage is the separate flat per-row column that drives `tech_win`.
-Because of this, `/api/closed-deals/summary`'s team-level query filters
+`"Sean Keleher (USD 1,099,753.82)"`; both that form and the `(9)` row-count
+form are stripped by the shared `sheet_parse.strip_group_label`, so there is
+no per-tab strip regex any more. Team Role and Region are grouping-only
+fields used to walk the structure — neither is persisted to `closed_deals`.
+Stage carries both "10 - Closed/Won" and a Closed/Lost value — the tab
+covers all closed deals, not won deals only. Presales Stage is the separate
+flat per-row column that drives `tech_win`.
+
+**Rule: every dollar query against `closed_deals` filters on
+`constants.STAGE_CLOSED_WON` — import the constant, don't re-type the
+string.** Why it's a rule rather than a reminder: the filter was originally
+documented here as "remember to add `AND sales_stage = '10 - Closed/Won'` at
+each query site," and the site that forgot it (`app.py`'s `list_reps`
+(`/api/reps`) `arr_total` subquery) shipped Lost-deal amounts as revenue
+(fixed 2026-09). The literal now lives in exactly one place, so a new query
+site inherits the right value by importing it; `reviews.py` and `top_items.py`
+both do. `/api/closed-deals/summary`'s team-level query additionally filters
 `WHERE se_rep_id IS NOT NULL` and reports `closed_won`/`closed_won_pct`
 alongside `tech_win_pct` — Tech Win Rate's denominator is "closed deals with
-an assigned SE," not "closed-won deals." Any other query against
-`closed_deals` — e.g. `app.py`'s `list_reps` (`/api/reps`) `arr_total`
-subquery — must add `AND sales_stage = '10 - Closed/Won'` too, or it will
-double-count Lost-deal amounts as revenue; this exact bug shipped once
-(fixed 2026-09) because the mixed-data warning above wasn't cross-referenced
-from that second query site.
+an assigned SE," not "closed-won deals." `reviews.py` splits the same rows
+into Closed-WON and Closed-LOST blocks in the LLM context: a lost deal stays
+visible as SE evidence (a technical win can still close Lost) but never
+reaches the revenue line.
 
-`list_reps`'s `tech_forecast_arr` subquery had a parallel bug (fixed
-2026-09-11): it attributed `tech_forecast_deals` rows to a rep via an
-opportunity_name→`deals.se_rep_id` join only, which is step 3 of
-`/api/tech-forecast`'s three-step precedence (`assigned_se_rep_id` override >
-case-insensitive `lead_se_name` match > opportunity_name fallback). Reps
-attributed via steps 1-2 got $0 in this column even with real forecasted ARR,
-and the column's total didn't match the Tech Forecast page. The subquery now
-mirrors the same three-step precedence as a correlated `COALESCE`.
+**Rule: SE attribution for `tech_forecast_deals` comes from
+`attribution.py`** — `EFFECTIVE_SE_ID_SQL` (or `LEAD_SE_ID_SQL` /
+`ATTRIBUTED_SE_ID_SQL` when a caller needs to show which step resolved a
+deal), and `effective_se_id(row)` for the Python-side equivalent. The
+precedence is `assigned_se_rep_id` override > case-insensitive `lead_se_name`
+match > opportunity_name→`deals.se_rep_id` fallback. Same history as above:
+`list_reps`'s `tech_forecast_arr` subquery was hand-written with step 3 only
+(fixed 2026-09-11), so reps attributed via steps 1-2 showed $0 despite real
+forecasted ARR and the column's total didn't match the Tech Forecast page.
+Don't re-write the COALESCE at a new call site — interpolate the constant
+(it takes no caller input, and `db.py` carries the two indexes that keep it
+fast: `idx_deals_opp_name` and the `lower(name)` expression index on
+`se_reps`).
 
 "Claude This q and next" is nested one level deeper than SFDC/Sheet3:
 group-header rows run Lead Sales Engineer > Deal Forecast Status, each
@@ -140,7 +203,14 @@ never triggers spurious staleness. If another manager's team shows up mixed
 in later, add them to that same mapping rather than special-casing Lead SE.
 Staleness is snapshot-diff based, not date-parsed: each sync compares the
 incoming Pre-Sales Next Steps text against the value stored from the
-*previous* sync and sets `notes_stale` on the row if unchanged.
+*previous* sync and sets `notes_stale` on the row if unchanged. It must be
+evaluated on **both** sides of the fingerprint gate in `load_rows`: a
+completely untouched deal matches its fingerprint and skips the upsert, and
+that frozen row is precisely the one the flag exists to catch — computing
+staleness only on the changed path meant "nobody has touched this in three
+weeks" could never fire at all. Same reasoning as the org tags: both are
+derived from a comparison, not from the row's own content, so the
+fingerprint can't stand in for either.
 
 The sheet's three notes columns (Pre-Sales Notes, SE Manager Notes,
 Pre-Sales Next Steps) hold long dated logs, newest entry first (e.g. "RK
@@ -173,9 +243,30 @@ forward-fill already described in `sheets_sync.py`'s module docstring:
 group-header cells read like `Nic Da Silva (9)` / `2 - Discovery (3)` — a
 live row count appended to the name/stage, not part of it — and the
 *per-lead* subtotal row (unlike the per-stage one) puts the literal word
-`Subtotal` in the Lead SE column itself. Both are handled by
-`_strip_group_count`; if a future column gets added to the grouped layout,
-check whether it needs the same treatment before trusting a raw sync.
+`Subtotal` in the Lead SE column itself. Both are handled by the shared
+`sheet_parse.strip_group_label`; if a future column gets added to the grouped
+layout, check whether it needs the same treatment before trusting a raw sync.
+
+`strip_group_label` returns **three distinct signals**, and a caller that
+collapses any two of them reintroduces a shipped bug:
+
+- a real name/label — a group boundary; resolve pending rows, set the fill;
+- `""` (the default for a bare `-`) — a genuine "nobody assigned yet"
+  boundary: reset the fill at this level and cascade the reset downward, so
+  the next group can't inherit the previous one's name. `sheets_sync.py`
+  passes `unassigned="Unassigned"` instead, which makes `-` a normal named
+  group that forward-fills like any other lead; `closed_deals_sync.py` takes
+  the default `""` and `load_rows` maps the blank to `"Unassigned"` when it
+  writes `rep_name` (it previously had no `-` case at all, so a literal `-`
+  forward-filled as though it were a person);
+- `None` for a blank cell or a bare `Subtotal`/`Total` marker — row-shape
+  noise, *not* a boundary. Inherit the current fill and keep buffering.
+  Marker text can land one column over from its own level, so resetting on it
+  discards deal rows still waiting on a late-arriving group name — that's
+  exactly how NOVA Chemicals / MacEwan University lost their Lead SE
+  (bf03fc7). Marker matching is an exact match on the stripped cell, never a
+  substring scan: a substring test drops real opportunities named
+  "TotalEnergies" or "Total Rewards Platform".
 
 In a fresh Bash-tool session (no venv activation), `py`/`python` resolve to
 the global interpreter, not this project's venv — `py mcp_ingest.py ...`
@@ -203,13 +294,37 @@ checking which behavior each caller actually needs.
 quarters to match Technical Forecast, diverging from the old Dashboard's
 calendar-quarter `current_quarter()`.
 
-`tech_forecast_report.quarter_bucket()` reuses `fiscal_quarter()` to label a
-deal's target Technical Win date (Tech Win Date, falling back to Close Date)
-as `current`/`next`/`later`/`None` relative to *today's* fiscal quarter — this
-powers the Slack draft's Current Quarter / Next Quarter split under "Come
-ready to discuss." `_offset_quarter_key` shifts a `(fy, q)` sort-key tuple by
-N quarters (wrapping year boundaries) to compute the "next quarter" label
-without re-deriving fiscal-quarter math a second time.
+`tech_forecast_report.quarter_bucket_detailed()` reuses `fiscal_quarter()` to
+label a deal's target Technical Win date (Tech Win Date, falling back to Close
+Date) as `current`/`next`/`overdue`/`later`/`None` relative to *today's*
+fiscal quarter — this powers the Slack draft's Current Quarter / Next Quarter
+split under "Come ready to discuss" and the Look Forward bucket order.
+`overdue` (target quarter already closed) used to sink into `later`, which
+meant the most urgent deals on the board got no SFDC note draft at all. The
+older three-way `quarter_bucket()` is kept for `app.py`, which layers its own
+overdue refinement on top of it; new code in that module calls the `_detailed`
+form. `offset_quarter_key` (public now; `_offset_quarter_key` remains as an
+alias for the pre-rename caller) shifts a `(fy, q)` sort-key tuple by N
+quarters, wrapping year boundaries, and `next_fiscal_quarter_label()` is the
+public one-call way to label the following quarter instead of chaining
+`fiscal_quarter_sort_key` / `offset_quarter_key` / `quarter_label` by hand.
+
+`build_tech_win_trend()` dedupes: a won deal lives in `closed_deals`
+(`tech_win = 1`) *and* stays in `tech_forecast_deals` at Technical
+Win/Closed-Won, so it used to be counted and totalled twice in its quarter.
+It also reports `closed_lost_count` — a technical win that closed Lost stays
+visible in `count` (it happened) but contributes nothing to `amount` — and
+labels undated rows as an explicit `"Undated"` bucket sorted last, rather
+than a `null` quarter that sorted ahead of every real one.
+
+`build_weekly_deltas(current_rows, prior_states)` is pure: the caller passes
+the rows it already holds plus the previous snapshot's parsed
+`deal_states_json`. It used to take `db` and re-read `tech_forecast_deals` in
+a second transaction, so a sync landing mid-request could leave the deltas
+describing a different set of rows than the metrics beside them. The list
+builders (`build_needs_lead_se`, `build_missing_notes`, `build_sfdc_updates`)
+take a `limit` (`DEFAULT_LIST_LIMIT = 25`) instead of returning unbounded
+lists.
 
 Per Claude Leroux (2026-09-02), the Slack draft's per-deal discussion
 question (`build_discussion_question`) is deliberately rule-based, not
@@ -294,8 +409,11 @@ scratchpad for one task, not a running log.
 
 | File | Purpose |
 |---|---|
-| `app.py` | Flask routes |
-| `db.py` | SQLite schema + thread-local connections |
+| `app.py` | Flask routes — JSON error handler (`LOG_LEVEL` env sets log level; exception detail goes to the log, never the browser), bounded/validated query params, 400/404 on the assign routes |
+| `db.py` | SQLite schema + thread-local connections; query indexes; `utc_now_iso()` (use it for any column whose schema default is UTC `datetime('now')` — `datetime.now()` writes local time and disagrees with the row beside it); `prune_snapshots()`; `schema_version`-gated one-time cleanups |
+| `constants.py` | Canonical SFDC/sheet literals: `STAGE_CLOSED_WON`, `PRESALES_TECH_WIN`, `FORECAST_RISK` — import, never re-type |
+| `attribution.py` | The single copy of the three-step SE precedence: `EFFECTIVE_SE_ID_SQL`, `LEAD_SE_ID_SQL`, `ATTRIBUTED_SE_ID_SQL`, `effective_se_id(row)` |
+| `sheet_parse.py` | Shared grouped-sheet parsing/loading for the three sheet syncs: `parse_amount`, `parse_date`, `strip_group_label`, `is_marker_cell`, `map_header`, `build_sheet_key`, `row_fingerprint`, `match_rekeyed_rows`, `guard_row_shrink`, `delete_keys`, `write_setting`. No db/Flask/gspread imports |
 | `sheets_sync.py` | Google Sheets "Lead SE Pipeline SFDC" tab → `deals` table |
 | `closed_deals_sync.py` | Google Sheets "Canada SE Closed This Fiscal Year" tab (closed-deal export, Won and Lost, technical-win flag) → `closed_deals` table |
 | `tech_forecast_sync.py` | Google Sheets "Claude This q and next" tab (Technical Forecast pipeline, grouped Lead SE > Deal Forecast Status, Presales Stage flat per-deal) → `tech_forecast_deals` table; also captures the daily snapshot used for week-over-week deltas |
@@ -303,7 +421,9 @@ scratchpad for one task, not a running log.
 | `slack_sync.py` | Slack `search.messages` → `slack_notes` table |
 | `mcp_ingest.py` | CLI bridge — loads MCP-fetched JSON into the DB, no credentials needed |
 | `seed_arr_targets.py` | One-off: sets `se_reps.arr_target` by name (FY26 H2: Sean/Rishika $2.5M, Valentin/Nic $1.5M) |
-| `reviews.py` | LiteLLM-backed review drafting |
+| `reviews.py` | LiteLLM-backed review drafting — the LLM context splits Closed-WON from Closed-LOST so lost deals stay visible as SE evidence but never reach the revenue line |
+| `top_items.py` | Top Items weekly summary — pure scaffold/persistence helpers, no Flask dependency (`DEFAULT_WINS_LIMIT = 25`) |
+| `tests/` | pytest suite — run with `python3 -m pytest` (`venv/Scripts/python.exe -m pytest` on the user's machine) |
 | `frontend/` | React (Vite) frontend — `src/api.js` (fetch helpers), `src/App.jsx` (shell/router), `src/pages/`, `src/components/`, `src/style.css` (ported Okta dark theme). `npm run build` in `frontend/` produces `frontend/dist`, which is committed and served by Flask at `/` (see `app.py`'s `static_folder`) |
 
 ## Not built yet

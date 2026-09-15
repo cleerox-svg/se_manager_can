@@ -27,12 +27,18 @@ on [NaughtRFP](../rfp-responder)'s stack and Okta dark-theme UI.
 - **Dashboard** — team-wide rollup sourced from Technical Forecast data, no
   individual SE names shown at top level. Three stat cards (closed deals,
   % closed won, % technical win, from `/api/closed-deals/summary`'s
-  name-free `team` object), a stacked ARR-trend area chart across the full
-  `tech_forecast_snapshots` history (Technical Win / In Flight / Untagged),
-  a stage-funnel bar chart per confidence (reusing
-  `tech_forecast_report.build_breakdown()`), and a quarter-over-quarter
-  Technical Win ARR bar chart grouped by Okta fiscal quarter (see "Fiscal
-  quarters" in CLAUDE.md). Built with `recharts`.
+  name-free `team` object), a stacked ARR-trend area chart over the last 180
+  days of `tech_forecast_snapshots` (Technical Win / In Flight / Untagged —
+  `/api/dashboard/arr-trend` takes `?days=`, 7 to 1095, to widen or narrow
+  that window; it used to read the whole unbounded history), a stage-funnel
+  bar chart per confidence (reusing `tech_forecast_report.build_breakdown()`),
+  and a quarter-over-quarter Technical Win ARR bar chart grouped by Okta
+  fiscal quarter (see "Fiscal quarters" in CLAUDE.md). The tech-win trend
+  counts a deal once even when it appears in both `closed_deals` and
+  `tech_forecast_deals`, reports `closed_lost_count` separately (a technical
+  win that closed Lost stays visible in the count but adds no revenue), and
+  puts undated rows in a labeled "Undated" bucket sorted last. Built with
+  `recharts`.
 - **Team** — roster of SEs derived from the sheet's "Lead Sales Engineer"
   column, with an active/inactive toggle (used to mark departed reps —
   their historical deals stay visible, they just don't show up as a current
@@ -59,9 +65,9 @@ on [NaughtRFP](../rfp-responder)'s stack and Okta dark-theme UI.
   group — see "SE attribution" below. Presales Stage is a flat per-deal
   column (not a group level), genuinely blank for deals not yet staged. The
   sheet's query also carries deals belonging to Greg Rainbird's sales org
-  (a different team) — those are dropped entirely during sync, even when a
-  now-inactive Lead SE of ours is still attached, since they aren't ours to
-  track here. A "Sync now" button next to Present mode copies a ready-made
+  (a different team) — those are kept but tagged with a `product`/`segment`
+  pair during sync so they stay visible while clearly marked as another org's,
+  even when a now-inactive Lead SE of ours is still attached. A "Sync now" button next to Present mode copies a ready-made
   sync request to the clipboard for pasting into a Claude Code chat (no
   live in-app fetch —
   see "Data model" below). Five sections: Macro View (stat-grid — Current
@@ -83,7 +89,12 @@ on [NaughtRFP](../rfp-responder)'s stack and Okta dark-theme UI.
   ("Closed win" vs. "Tech win (open)") is driven by `sales_stage ===
   '10 - Closed/Won'`, not by which table the row came from — a row can come
   from either `closed_deals` or `tech_forecast_deals` and still need the
-  "Tech win (open)" badge if it hasn't actually closed won yet), Look Forward &
+  "Tech win (open)" badge if it hasn't actually closed won yet. Each row now
+  carries that classification explicitly from the API —
+  `win_status` (`closed_won` / `closed_lost` / `open`), `counts_as_revenue`,
+  and `revenue_amount`, which is 0 for anything that isn't closed won — so a
+  technically-won but commercially-lost deal stays on the page without
+  inflating a dollar total), Look Forward &
   Inspect (open technical pipeline table, grouped into collapsible sections —
   same `<details class="flyout">` pattern as Look Back — by target Technical
   Win date's fiscal-quarter bucket, in fixed order Overdue → Current Quarter →
@@ -211,6 +222,22 @@ Review drafting calls the LiteLLM proxy (`https://llm.atko.ai`) using the
 same client pattern as NaughtRFP. Sidebar nav/theme-toggle icons are
 `lucide-react`.
 
+Shared backend modules, each the single source for something that used to be
+copy-pasted per file:
+
+- `constants.py` — the SFDC/sheet literals that drive revenue math
+  (`STAGE_CLOSED_WON`, `PRESALES_TECH_WIN`, `FORECAST_RISK`). These were
+  re-typed at roughly fifteen query sites, which is how a Closed/Lost amount
+  once got counted as revenue.
+- `attribution.py` — the three-step SE attribution precedence as SQL
+  (`EFFECTIVE_SE_ID_SQL` and its component parts) plus a Python equivalent,
+  so a new query can't implement only part of it (see "SE attribution" above).
+- `sheet_parse.py` — grouped-sheet parsing shared by the three sheet syncs:
+  amounts and dates, group-header labels, row keys and fingerprints, the
+  header check and the truncated-fetch guard. No db/Flask/gspread imports.
+- `top_items.py` — Top Items scaffold/persistence, mirroring
+  `tech_forecast_report.py`'s pure-logic, no-Flask convention.
+
 ## Run it
 
 ```bash
@@ -232,6 +259,25 @@ For frontend development with hot reload, run `npm run dev` inside
 `frontend/` (proxies `/api/*` to the Flask server on port 5050) alongside
 `py app.py`.
 
+`LOG_LEVEL` (default `INFO`) sets the app's log level. The app logs through
+`logging` and returns JSON for every error, including unhandled ones — the
+browser gets a generic message and the traceback goes to the log, since
+exception text can carry a service-account path or a token fragment. If a
+request fails, the log is where the reason is.
+
+## Running the tests
+
+```bash
+python3 -m pytest
+```
+
+(`venv\Scripts\python.exe -m pytest` on the user's machine, where `py`
+resolves to the global interpreter.) Config lives in `pytest.ini`; the suite
+itself is under `tests/`, and covers the pure backend helpers — the shared
+sheet parsing and the fiscal-quarter math among them. Run it after touching
+`sheet_parse.py`, the three `*_sync.py` modules, `tech_forecast_report.py`,
+`constants.py` or `attribution.py`.
+
 Data gets in via one of two paths — see [SETUP.md](SETUP.md):
 - **Ask Claude to sync** (no setup) — Claude uses its own Google Sheets /
   Slack MCP access and loads the result with `mcp_ingest.py`.
@@ -242,7 +288,10 @@ Data gets in via one of two paths — see [SETUP.md](SETUP.md):
 
 - `se_reps` — roster, Slack user ID, active/inactive flag, `arr_target`
   (full-fiscal-year closed-won ARR target, manager-set — seeded once via
-  `seed_arr_targets.py`, editable in place from the Team page).
+  `seed_arr_targets.py`, editable in place from the Team page). A Lead SE
+  name the deals sync sees for the first time is inserted **inactive**, so a
+  new (or typo'd) name never becomes a current direct report on its own —
+  activate it from the Team page after a look.
 - `deals` — synced from the Team Tracking Sheet's open-pipeline tab, one row
   per open opportunity.
 - `closed_deals` — synced from the Team Tracking Sheet's closed-deal export
@@ -250,8 +299,10 @@ Data gets in via one of two paths — see [SETUP.md](SETUP.md):
   both Closed/Won and Closed/Lost, not won deals only — flagged `tech_win`
   when Presales Stage is "6 - Technical Win". Loaded the same MCP-assisted
   way as `deals` (`py mcp_ingest.py closed_deals <json_file>`), and folded
-  into `reviews.py`'s LLM context so future generated drafts lead with real
-  closed-deal/technical-win evidence. Also carries `opportunity_id` (for
+  into `reviews.py`'s LLM context — split into Closed-WON and Closed-LOST
+  blocks, so a lost deal still counts as SE evidence (the technical win
+  happened) without its amount reaching the revenue line — so future
+  generated drafts lead with real closed-deal/technical-win evidence. Also carries `opportunity_id` (for
   Salesforce links) and `sales_stage` (the sheet's "Stage" column, either
   "10 - Closed/Won" or "11- Closed/Lost") alongside `tech_win`, distinguishing
   actual Closed Won status from the Tech Win flag. `/api/closed-deals/summary`
@@ -287,8 +338,12 @@ Data gets in via one of two paths — see [SETUP.md](SETUP.md):
   fields plus parsed close date/technical win date/amount) in one query,
   then skips the DB write entirely for any incoming row whose fingerprint
   is unchanged — no wasted writes, and `_capture_snapshot` only fires when
-  at least one row actually changed or was deleted. The return value
-  reports `synced` (changed + new), `unchanged`, and `deleted` counts.
+  at least one row actually changed or was deleted. `notes_stale` and the
+  cross-org `product`/`segment` tags are re-evaluated on both sides of that
+  fingerprint check: both are derived from a comparison rather than the row's
+  own content, and a completely frozen deal — the one staleness exists to
+  catch — is exactly the row the fingerprint skips. See "Sync behavior"
+  below for what a sync returns and what can stop it.
 - `tech_forecast_snapshots` — one row per sync day, holding that day's
   bucket totals and per-deal state as JSON — the baseline
   `tech_forecast_report.build_weekly_deltas` diffs the next sync against to
@@ -303,6 +358,48 @@ Data gets in via one of two paths — see [SETUP.md](SETUP.md):
   logic, no Flask dependency) builds the scaffold and backs
   `GET /api/top-items/latest`, `GET /api/top-items/history`,
   `POST /api/top-items/scaffold`, and `POST /api/top-items`.
+
+## Sync behavior
+
+Things a sync now does that are worth knowing before running one:
+
+- **Row keys, and a one-time churn.** Rows are keyed by Salesforce
+  opportunity ID when the sheet carries one, falling back to a composite
+  built from the *parsed* close date. The old keys embedded mutable
+  columns, so a slipped close date, an advanced stage — or a date cell
+  merely reformatted from `5/4/2026` to `05/04/2026` — changed the key,
+  which deleted and reinserted the row and took its manual SE/backup-SE
+  assignment with it. **The first sync after this change re-keys the rows
+  already stored**, so expect one run reporting an unusually large
+  synced/deleted count, and one week-over-week delta showing deals as
+  dropped and re-added. That is expected, and it happens once. Manual
+  overrides are carried onto the replacement rows (reported as
+  `overrides_carried`), so nothing is lost — no need to re-sync or re-enter
+  assignments.
+- **Truncated-fetch guard.** A sync refuses to run when the incoming payload
+  has more than 20% fewer rows than are already stored, because a truncated
+  fetch (a read range or pagination cursor cutting the grid short) looks
+  exactly like a shrunken sheet, and the delete pass would hard-delete every
+  missing row. Re-fetch with a wider range first. If the sheet genuinely did
+  shrink that much — a fiscal-year rollover emptying the closed tab, say —
+  pass `--allow-shrink` to `mcp_ingest.py` (`allow_shrink=True` on the
+  `sync_*_from_values` functions).
+- **Header check.** If the tab's header row doesn't carry the columns a sync
+  needs, it now fails with the missing column names instead of quietly
+  reporting `{"synced": 0}` — which is what a wrong tab, a wrong range, or a
+  grid starting below row 1 used to look like.
+- **What a sync reports.** The sheet syncs return `synced`, `unchanged`,
+  `deleted`, `overrides_carried` and `unparsed_amounts` (that last one counts
+  non-blank money cells that couldn't be parsed — money that would otherwise
+  vanish silently; `deals` has no per-row fingerprint, so its `unchanged` is
+  always 0). The Slack sync reports rows actually written — `synced`, `new`,
+  `updated`, `unchanged` — rather than matches fetched, so re-running it no
+  longer reads as a fresh lookback window of activity.
+- **Snapshot retention.** `db.prune_snapshots()` drops
+  `tech_forecast_snapshots` rows older than ~400 days while always keeping
+  the most recent handful. It is deliberately **not** called on startup (an
+  app restart must not be destructive) and currently has no caller — run it
+  by hand if the daily per-deal blobs grow unwieldy.
 
 ## Sub-agents
 
@@ -322,7 +419,7 @@ instructions each time:
 Each agent runs the full MCP-assisted sync flow for its data type: confirm
 the live tab name via gid, fetch data, write a temp JSON payload, run
 `mcp_ingest.py` through `venv/Scripts/python.exe`, delete the temp file,
-report the result (including the synced/unchanged/deleted counts above).
+report the result (the counts described under "Sync behavior" above).
 
 The `/sync-se-hub` skill (`.claude/skills/sync-se-hub/SKILL.md`) is the
 recommended way to trigger a sync — `/sync-se-hub` or "sync everything" runs
@@ -334,11 +431,10 @@ fan-out and reporting.
 
 ## Conventions
 
-- No GitHub by default — work stays local only. Local `git commit`s are
-  fine; don't create a remote repo or run `git push` unless explicitly
-  authorized for that specific task. Exception on record: the React
-  migration (`REACT_MIGRATION_PLAN.md`, Phases 0-6) was explicitly
-  authorized to push each phase to `origin/main`, and that migration is now
-  complete — see CLAUDE.md's Git workflow section for the full policy.
+- Keep `origin/main` up to date — commit and push after any meaningful
+  change rather than batching unpushed work locally. This replaced the
+  earlier "no GitHub by default" rule, which had scoped push authorization
+  to the React migration only; see CLAUDE.md's Git workflow section for the
+  full policy.
 - Update this README after any non-trivial feature change.
 - Work in small, reviewable chunks with a visible task list.
