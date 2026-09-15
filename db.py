@@ -338,6 +338,16 @@ class Database:
                     updated_at TEXT DEFAULT (datetime('now'))
                 );
 
+                CREATE TABLE IF NOT EXISTS agent_metrics (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    se_rep_id   INTEGER REFERENCES se_reps(id) ON DELETE CASCADE,
+                    metric_key  TEXT NOT NULL,
+                    value       REAL,
+                    rationale   TEXT,
+                    computed_at TEXT DEFAULT (datetime('now')),
+                    UNIQUE(se_rep_id, metric_key)
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_deals_se_rep ON deals(se_rep_id);
                 CREATE INDEX IF NOT EXISTS idx_deals_quarter ON deals(quarter);
                 CREATE INDEX IF NOT EXISTS idx_slack_notes_se_rep ON slack_notes(se_rep_id);
@@ -371,6 +381,8 @@ class Database:
 
                 CREATE INDEX IF NOT EXISTS idx_tech_forecast_presales_stage
                     ON tech_forecast_deals(presales_stage);
+
+                CREATE INDEX IF NOT EXISTS idx_agent_metrics_se_rep ON agent_metrics(se_rep_id);
             """)
             self._migrate(c)
 
