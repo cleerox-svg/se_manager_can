@@ -130,6 +130,14 @@ class Database:
             c.execute("ALTER TABLE tech_forecast_deals ADD COLUMN notes_prev_sync TEXT")
         if "notes_stale" not in cols:
             c.execute("ALTER TABLE tech_forecast_deals ADD COLUMN notes_stale INTEGER DEFAULT 0")
+        # When the Pre-Sales Next Steps text last actually changed. `notes_stale`
+        # only says "unchanged since the previous sync", which can't answer the
+        # question that decides whether a deal gets raised on the Monday call —
+        # unchanged for a week or unchanged for a month. Stays NULL on rows that
+        # predate this column: we genuinely don't know when they last moved, and
+        # stamping them now would claim they just did.
+        if "notes_last_changed_at" not in cols:
+            c.execute("ALTER TABLE tech_forecast_deals ADD COLUMN notes_last_changed_at TEXT")
         if "opportunity_id" not in cols:
             c.execute("ALTER TABLE tech_forecast_deals ADD COLUMN opportunity_id TEXT")
         if "row_fingerprint" not in cols:

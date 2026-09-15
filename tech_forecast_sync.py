@@ -242,7 +242,7 @@ def load_rows(db, rows: list[dict], allow_shrink: bool = False) -> dict:
     with db.conn() as c:
         for r in c.execute(
             "SELECT sheet_key, row_fingerprint, pre_sales_next_steps, opportunity_id, "
-            "opportunity_name, notes_stale, product, segment, "
+            "opportunity_name, notes_stale, notes_last_changed_at, product, segment, "
             "assigned_se_rep_id, backup_se_rep_id, backup_note, backup_assigned_at "
             "FROM tech_forecast_deals"
         ):
@@ -290,16 +290,26 @@ def load_rows(db, rows: list[dict], allow_shrink: bool = False) -> dict:
             # in three weeks" row, the one the flag exists for, could never be
             # flagged at all.
             notes_stale = 1 if existing is not None and prior_next_steps == new_next_steps else 0
+            # Stamp the moment the text actually moves, so the UI can say how
+            # long a deal has been sitting rather than just "not this week".
+            # Carried forward untouched while it's unchanged — including NULL
+            # for rows that predate the column, where the honest answer is that
+            # we don't know.
+            if existing is None or prior_next_steps != new_next_steps:
+                notes_last_changed_at = synced_at
+            else:
+                notes_last_changed_at = existing.get("notes_last_changed_at")
             product, segment = row.get("product"), row.get("segment")
 
             if existing is not None and existing["row_fingerprint"] == new_fingerprint:
                 unchanged_count += 1
                 c.execute("""
                     UPDATE tech_forecast_deals SET
-                        notes_stale = ?, notes_prev_sync = ?, product = ?, segment = ?,
-                        last_synced_at = ?
+                        notes_stale = ?, notes_prev_sync = ?, notes_last_changed_at = ?,
+                        product = ?, segment = ?, last_synced_at = ?
                     WHERE sheet_key = ?
-                """, (notes_stale, prior_next_steps, product, segment, synced_at, sheet_key))
+                """, (notes_stale, prior_next_steps, notes_last_changed_at, product, segment,
+                      synced_at, sheet_key))
                 continue
 
             changed_count += 1
@@ -310,9 +320,9 @@ def load_rows(db, rows: list[dict], allow_shrink: bool = False) -> dict:
                     forecast_status, sales_stage, deal_type, account_region, geo_seg, sales_segment,
                     sales_geo, close_date, technical_win_date, opportunity_owner, opportunity_owner_manager,
                     se_manager_notes, pre_sales_notes, pre_sales_next_steps, notes_prev_sync,
-                    notes_stale, confidence, billing_state_province, product, segment,
-                    row_fingerprint, last_synced_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    notes_stale, notes_last_changed_at, confidence, billing_state_province,
+                    product, segment, row_fingerprint, last_synced_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(sheet_key) DO UPDATE SET
                     lead_se_name = excluded.lead_se_name,
                     -- Updatable now that the key can be the opportunity ID:
@@ -333,6 +343,7 @@ def load_rows(db, rows: list[dict], allow_shrink: bool = False) -> dict:
                     pre_sales_next_steps = excluded.pre_sales_next_steps,
                     notes_prev_sync = excluded.notes_prev_sync,
                     notes_stale = excluded.notes_stale,
+                    notes_last_changed_at = excluded.notes_last_changed_at,
                     confidence = excluded.confidence,
                     billing_state_province = excluded.billing_state_province,
                     product = excluded.product,
@@ -347,7 +358,8 @@ def load_rows(db, rows: list[dict], allow_shrink: bool = False) -> dict:
                 row.get("sales_segment"), row.get("sales_geo"), close_date, technical_win_date,
                 row.get("opportunity_owner"), row.get("opportunity_owner_manager"),
                 row.get("se_manager_notes"), row.get("pre_sales_notes", ""), new_next_steps,
-                prior_next_steps, notes_stale, row.get("confidence"), row.get("billing_state_province"),
+                prior_next_steps, notes_stale, notes_last_changed_at,
+                row.get("confidence"), row.get("billing_state_province"),
                 product, segment,
                 new_fingerprint, synced_at,
             ))
@@ -411,8 +423,14 @@ def _capture_snapshot(db):
                 # forever), and build_weekly_deltas reads opportunity_id off
                 # the prior snapshot to build the Salesforce link for a
                 # dropped deal (without it, every dropped deal linked to null).
+                # close_date/technical_win_date make the snapshot re-bucketable
+                # after the fact: without a target date there is no way to ask
+                # "what was this quarter's forecast ARR a month ago", which is
+                # what the stat-tile trend needs. Snapshots taken before this
+                # simply have no dates, and the history builder skips them.
                 "SELECT sheet_key, opportunity_name, opportunity_id, amount, presales_stage, "
-                "forecast_status, confidence FROM tech_forecast_deals"
+                "forecast_status, confidence, close_date, technical_win_date "
+                "FROM tech_forecast_deals"
             ).fetchall()
         ]
     deal_states = {r["sheet_key"]: r for r in rows}

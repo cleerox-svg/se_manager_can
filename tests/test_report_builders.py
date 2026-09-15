@@ -265,3 +265,54 @@ def test_weekly_deltas_report_a_forecast_status_change_when_the_stage_holds():
     deltas = report.build_weekly_deltas([deal(forecast_status=FORECAST_RISK)], prior)
     assert deltas[0]["type"] == "status_change"
     assert "Strong -> Forecasted Risk" in deltas[0]["detail"]
+
+
+# ── quarter ARR history (stat-tile trend) ────────────────────────────────────
+
+def _snap(day, rows):
+    return (day, json.dumps({f"k{i}": r for i, r in enumerate(rows)}))
+
+
+def test_history_measures_every_point_against_todays_quarter(frozen_quarter):
+    """Each point must use the SAME quarter, otherwise the series rebases at
+    each boundary and the trend means nothing."""
+    hist = report.build_quarter_arr_history([
+        _snap("2026-09-01", [{"amount": 100000, "close_date": "2026-10-31"}]),
+        _snap("2026-09-08", [{"amount": 140000, "close_date": "2026-10-31"}]),
+    ])
+    assert [h["current_arr"] for h in hist] == [100000, 140000]
+
+
+def test_history_prefers_the_technical_win_date_over_close_date(frozen_quarter):
+    hist = report.build_quarter_arr_history([
+        _snap("2026-09-01", [
+            {"amount": 180000, "technical_win_date": "2026-09-30", "close_date": "2027-05-01"},
+        ]),
+    ])
+    assert hist[0]["current_arr"] == 180000
+
+
+def test_history_skips_snapshots_with_no_target_dates(frozen_quarter):
+    """Snapshots predating the recorded dates contribute nothing — reporting
+    them as $0 would read as a collapsed pipeline rather than missing data."""
+    hist = report.build_quarter_arr_history([
+        _snap("2026-08-01", [{"amount": 90000}]),                       # no dates
+        _snap("2026-09-01", [{"amount": 100000, "close_date": "2026-10-31"}]),
+    ])
+    assert [h["snapshot_date"] for h in hist] == ["2026-09-01"]
+
+
+def test_history_is_capped_and_oldest_first(frozen_quarter):
+    snaps = [_snap(f"2026-09-{d:02d}", [{"amount": d, "close_date": "2026-10-31"}])
+             for d in range(1, 13)]
+    hist = report.build_quarter_arr_history(snaps, limit=4)
+    assert len(hist) == 4
+    assert [h["snapshot_date"] for h in hist] == [
+        "2026-09-09", "2026-09-10", "2026-09-11", "2026-09-12"]
+
+
+def test_delta_is_none_rather_than_zero_when_there_is_no_history():
+    """Unknown and unchanged both render as 0 but mean opposite things, so the
+    caller has to be able to tell them apart."""
+    assert report.quarter_arr_delta([], 250000) is None
+    assert report.quarter_arr_delta([{"current_arr": 200000}], 250000) == 50000

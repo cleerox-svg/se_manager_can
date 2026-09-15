@@ -344,10 +344,21 @@ Data gets in via one of two paths — see [SETUP.md](SETUP.md):
   own content, and a completely frozen deal — the one staleness exists to
   catch — is exactly the row the fingerprint skips. See "Sync behavior"
   below for what a sync returns and what can stop it.
+  Each sync also stamps `notes_last_changed_at` when the Pre-Sales Next Steps
+  text actually moves, which is what lets the flag chip say "Stale 3 weeks"
+  rather than the undated "No update this week". Deals synced before that
+  column existed keep a NULL stamp and show the old wording.
 - `tech_forecast_snapshots` — one row per sync day, holding that day's
   bucket totals and per-deal state as JSON — the baseline
   `tech_forecast_report.build_weekly_deltas` diffs the next sync against to
-  produce the preread's "Key Changes vs Last Week" section.
+  produce the preread's "Key Changes vs Last Week" section. The per-deal
+  state includes each deal's close and technical-win dates, so
+  `build_quarter_arr_history` can re-bucket past snapshots and chart how this
+  quarter's forecast ARR built up; that feeds the sparkline and the "since
+  last sync" delta on the Technical Forecast ARR tiles. Every point is
+  measured against *today's* quarter, so the line doesn't silently rebase at
+  a quarter boundary, and snapshots taken before those dates were recorded
+  are skipped rather than plotted as $0.
 - `slack_notes` — synced from Slack search per rep.
 - `reviews` — drafted/edited review content, one row per (rep, period),
   `status` of `draft` or `final` — settable from either the Team page's

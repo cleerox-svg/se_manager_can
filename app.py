@@ -382,11 +382,21 @@ def tech_forecast():
     )
 
     current_label = report.current_fiscal_quarter()
-    next_label = report.quarter_label(
-        report._offset_quarter_key(report.fiscal_quarter_sort_key(current_label), 1)
-    )
+    next_label = report.next_fiscal_quarter_label(current_label)
     current_arr = sum(d["amount"] or 0 for d in deals if d["quarter_bucket"] == "current")
     next_arr = sum(d["amount"] or 0 for d in deals if d["quarter_bucket"] == "next")
+
+    # A quarter number on its own can't be judged — the tiles need the shape it
+    # arrived by. Oldest-first so the sparkline reads left to right.
+    with db.conn() as c:
+        snapshots = [
+            (r["snapshot_date"], r["deal_states_json"])
+            for r in c.execute(
+                "SELECT snapshot_date, deal_states_json FROM tech_forecast_snapshots "
+                "ORDER BY snapshot_date DESC LIMIT 12"
+            ).fetchall()
+        ][::-1]
+    arr_history = report.build_quarter_arr_history(snapshots)
 
     return jsonify({
         "deals": deals,
@@ -396,6 +406,11 @@ def tech_forecast():
         "current_quarter_label": current_label,
         "next_quarter_arr": next_arr,
         "next_quarter_label": next_label,
+        "arr_history": arr_history,
+        # None (not 0) when there is nothing to compare against — the tile must
+        # render nothing rather than an authoritative-looking "no change".
+        "current_quarter_arr_delta": report.quarter_arr_delta(arr_history, current_arr, "current_arr"),
+        "next_quarter_arr_delta": report.quarter_arr_delta(arr_history, next_arr, "next_arr"),
     })
 
 

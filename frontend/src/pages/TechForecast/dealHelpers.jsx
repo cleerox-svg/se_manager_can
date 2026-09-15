@@ -31,6 +31,21 @@ export function salesStageBadge(stage) {
   return <span className={`badge ${map[stage] || 'badge-blue'}`}>{stage || '-'}</span>;
 }
 
+// How long a deal has actually been sitting, which is what decides whether it
+// gets raised on the Monday call — "unchanged for a month" is a different
+// conversation from "unchanged since Friday". Falls back to the undated wording
+// for rows synced before notes_last_changed_at existed, where we genuinely
+// don't know when the text last moved.
+export function staleLabel(d) {
+  const since = d.notes_last_changed_at;
+  if (!since) return 'No update this week';
+  const days = Math.floor((Date.now() - new Date(since).getTime()) / 86400000);
+  if (!Number.isFinite(days) || days < 0) return 'No update this week';
+  if (days < 14) return 'No update this week';
+  const weeks = Math.floor(days / 7);
+  return weeks < 9 ? `Stale ${weeks} weeks` : 'Stale 2+ months';
+}
+
 export function DealFlags({ d }) {
   // Flags carry a severity so the row that needs raising on Monday doesn't look
   // identical to the row that's merely untidy: nobody owning the deal is worse
@@ -40,7 +55,7 @@ export function DealFlags({ d }) {
   return (
     <div className="pill-row">
       {!!d.needs_lead_se && <span className="badge badge-red">No Lead SE</span>}
-      {!!d.notes_stale && <span className="badge badge-amber">No update this week</span>}
+      {!!d.notes_stale && <span className="badge badge-amber">{staleLabel(d)}</span>}
       {!d.pre_sales_next_steps && <span className="badge badge-muted">No TW strategy</span>}
     </div>
   );

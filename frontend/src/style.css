@@ -217,6 +217,14 @@ tr.clickable { cursor: pointer; }
    column is right-aligned; without both, two amounts in the same column can't
    be compared without reading each one. */
 .col-num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Stat tile trend: the sparkline sits beside the figure rather than under it,
+   so adding it doesn't push the label out of a tile sized for two lines. */
+.stat-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.stat-spark { flex: 0 0 auto; margin-top: 2px; overflow: visible; }
+.stat-delta { margin-top: 6px; font-size: .74rem; font-weight: 600; }
+.stat-delta.is-up { color: var(--green); }
+.stat-delta.is-down { color: var(--red); }
 .stat-value, .winrate-rep-pct, .goal-bar-label .pct { font-variant-numeric: tabular-nums; }
 
 /* Shown in place of a chart that has no data yet, so an empty plot reads as

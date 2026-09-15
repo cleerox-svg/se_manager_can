@@ -707,6 +707,73 @@ def build_executive_takeaway(metrics):
     )
 
 
+def build_quarter_arr_history(snapshots, limit=8):
+    """Current- and next-quarter forecast ARR as of each past snapshot.
+
+    Each entry is the ARR of deals whose target date falls in *today's* current
+    or next fiscal quarter — not the quarter that happened to be current when
+    the snapshot was taken. The question a manager is asking of this series is
+    "how has the number I am being held to this quarter moved", so every point
+    has to be measured against the same quarter, otherwise the line silently
+    rebases at each quarter boundary and the trend is meaningless.
+
+    `snapshots` are (snapshot_date, deal_states_json) oldest-first. Snapshots
+    written before the target dates were recorded contribute no bucketed ARR,
+    so they are skipped rather than reported as zero — a flat run at $0 would
+    read as "we lost the pipeline" instead of "we weren't recording this yet".
+    """
+    current_key = fiscal_quarter_sort_key(current_fiscal_quarter())
+    next_key = offset_quarter_key(current_key, 1)
+
+    history = []
+    for snapshot_date, states_json in snapshots:
+        try:
+            states = json.loads(states_json) if states_json else {}
+        except (TypeError, ValueError):
+            continue
+        rows = states.values() if isinstance(states, dict) else (states or [])
+
+        current_arr = next_arr = 0.0
+        dated = False
+        for row in rows:
+            target = target_tw_date(row)
+            if not target:
+                continue
+            key = fiscal_quarter_sort_key(fiscal_quarter(target))
+            if key == _UNKNOWN_QUARTER_KEY:
+                continue
+            dated = True
+            amount = row.get("amount") or 0
+            if key == current_key:
+                current_arr += amount
+            elif key == next_key:
+                next_arr += amount
+
+        if dated:
+            history.append({
+                "snapshot_date": snapshot_date,
+                "current_arr": current_arr,
+                "next_arr": next_arr,
+            })
+
+    return history[-limit:] if limit else history
+
+
+def quarter_arr_delta(history, current_arr, key="current_arr"):
+    """Change between the most recent snapshot and the live figure, or None.
+
+    None means "no comparison available" and the caller must render nothing
+    rather than a zero — an unchanged number and an unknown one look identical
+    as `0` and mean opposite things.
+    """
+    if not history:
+        return None
+    prior = history[-1].get(key)
+    if prior is None:
+        return None
+    return (current_arr or 0) - prior
+
+
 def build_weekly_deltas(current_rows, prior_states):
     """Diff the deal rows the caller already holds against `prior_states` —
     the previous snapshot's parsed `deal_states_json`, or None when there's no

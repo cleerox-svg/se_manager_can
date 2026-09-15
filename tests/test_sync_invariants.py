@@ -393,3 +393,59 @@ def test_rows_absent_from_the_payload_are_deleted(db):
     result = tf_sync(db, *_many_tf_rows(9))
     assert result["deleted"] == 1
     assert count(db, "tech_forecast_deals") == 9
+
+
+# ── notes_last_changed_at ────────────────────────────────────────────────────
+# notes_stale only says "unchanged since the previous sync". The timestamp is
+# what lets the UI say HOW long, which is what decides whether a deal gets
+# raised on the call.
+
+def _tf_row(next_steps):
+    return {
+        "Lead Sales Engineer": "Amara Osei",
+        "Deal Forecast Status": "Commit",
+        "Opportunity Name": "Acme",
+        "Opportunity ID": "006Z",
+        "Close Date": "2026-10-31",
+        "Amount (converted)": "$50,000",
+        "Presales Stage": "3 - Validation",
+        "Pre-Sales Next Steps": next_steps,
+    }
+
+
+def _notes_state(database):
+    with database.conn() as c:
+        row = c.execute(
+            "SELECT notes_stale, notes_last_changed_at FROM tech_forecast_deals"
+        ).fetchone()
+    return row["notes_stale"], row["notes_last_changed_at"]
+
+
+def test_notes_timestamp_holds_still_while_the_text_does(db):
+    tf_sync(db, _tf_row("RK Sep-01 : demo booked"))
+    _, first = _notes_state(db)
+    tf_sync(db, _tf_row("RK Sep-01 : demo booked"))
+    stale, second = _notes_state(db)
+    assert stale == 1
+    assert second == first, "the stamp moved even though the notes did not"
+
+
+def test_notes_timestamp_advances_when_the_text_moves(db):
+    tf_sync(db, _tf_row("RK Sep-01 : demo booked"))
+    _, first = _notes_state(db)
+    tf_sync(db, _tf_row("RK Sep-15 : POC started"))
+    stale, second = _notes_state(db)
+    assert stale == 0
+    assert second > first
+
+
+def test_rows_predating_the_column_keep_a_null_stamp(db):
+    """We don't know when they last moved; claiming they just did would show a
+    month-old deal as fresh."""
+    tf_sync(db, _tf_row("RK Sep-01 : demo booked"))
+    with db.conn() as c:
+        c.execute("UPDATE tech_forecast_deals SET notes_last_changed_at = NULL")
+    tf_sync(db, _tf_row("RK Sep-01 : demo booked"))
+    stale, stamp = _notes_state(db)
+    assert stale == 1
+    assert stamp is None

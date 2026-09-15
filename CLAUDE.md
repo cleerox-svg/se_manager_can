@@ -212,6 +212,16 @@ weeks" could never fire at all. Same reasoning as the org tags: both are
 derived from a comparison, not from the row's own content, so the
 fingerprint can't stand in for either.
 
+Alongside the boolean, each sync stamps `notes_last_changed_at` with the
+moment the Pre-Sales Next Steps text actually moved, and carries the old
+value forward untouched while it hasn't. `notes_stale` alone only says
+"unchanged since the previous sync", which can't distinguish a deal that
+went quiet on Friday from one that went quiet in July — so the flag chip
+reads "Stale 3 weeks" / "Stale 2+ months" off the timestamp. Rows synced
+before the column existed keep a NULL stamp and fall back to the undated
+"No update this week" wording: we genuinely don't know when they last
+moved, and back-filling `now` would show a month-old deal as fresh.
+
 The sheet's three notes columns (Pre-Sales Notes, SE Manager Notes,
 Pre-Sales Next Steps) hold long dated logs, newest entry first (e.g. "RK
 Aug-31-2026 : ... \r\n\r\nRK Aug-24-2026 : ..."). `mcp__google_sheets__
