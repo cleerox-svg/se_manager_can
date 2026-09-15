@@ -337,19 +337,11 @@ def tech_forecast():
         d["needs_lead_se"] = not se_id
         d["opportunity_url"] = opportunity_url(d["opportunity_id"])
 
-        # quarter_bucket() only distinguishes current/next/later — "later" also
-        # catches deals whose target date already passed. Add "overdue" as a
-        # local refinement on top, without touching quarter_bucket() itself
-        # (it also powers build_top_deals/build_sfdc_updates/build_slack_draft).
-        target_tw_date = d["technical_win_date"] or d["close_date"]
-        bucket = report.quarter_bucket(target_tw_date)
-        if bucket == "later" and target_tw_date:
-            target_key = report.fiscal_quarter_sort_key(report.fiscal_quarter(target_tw_date))
-            current_key = report.fiscal_quarter_sort_key(report.current_fiscal_quarter())
-            if target_key < current_key:
-                bucket = "overdue"
-        d["target_tw_date"] = target_tw_date
-        d["quarter_bucket"] = bucket
+        # Both of these live in tech_forecast_report so this route and the
+        # Slack/SFDC builders agree on what "overdue" and "target date" mean.
+        # This block used to re-derive them here, which is how the two drifted.
+        d["target_tw_date"] = report.target_tw_date(d)
+        d["quarter_bucket"] = report.quarter_bucket_detailed(d["target_tw_date"])
 
         deals.append(d)
 

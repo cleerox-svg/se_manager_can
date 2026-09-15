@@ -19,8 +19,10 @@ from datetime import datetime
 import sheet_parse
 from db import utc_now_iso
 
-import gspread
-from google.oauth2.service_account import Credentials
+# gspread / google-auth are imported inside `_client` rather than here: the
+# MCP-assisted path (`sync_deals_from_values`, driven by `mcp_ingest.py`) is the
+# primary one and needs no credentials, but a module-level import made it fail
+# with ModuleNotFoundError before it ran a single line.
 
 _SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
 
@@ -66,7 +68,12 @@ _GROUP_COLUMNS = ("lead_se", "stage")
 _UNASSIGNED_LEAD = "Unassigned"
 
 
-def _client(service_account_json_path: str) -> gspread.Client:
+def _client(service_account_json_path: str):
+    """Authorised gspread client. Imports its dependencies lazily — see the note
+    at the top of this module."""
+    import gspread
+    from google.oauth2.service_account import Credentials
+
     creds = Credentials.from_service_account_file(service_account_json_path, scopes=_SCOPES)
     return gspread.authorize(creds)
 

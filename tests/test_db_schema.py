@@ -248,3 +248,56 @@ def test_a_failed_transaction_rolls_back_rather_than_half_committing(db):
     with db.conn() as c:
         names = {r["name"] for r in c.execute("SELECT name FROM se_reps")}
     assert names == {"Amara Osei"}
+
+
+# ── db.conn() re-entrancy ────────────────────────────────────────────────────
+# The connection is shared per thread, so before the depth guard a nested
+# `with db.conn()` committed the OUTER transaction as soon as the inner block
+# exited, and an inner failure rolled the outer's writes back with it. That made
+# it unsafe to call any helper opening its own scope from inside a transaction.
+
+def test_nested_conn_commits_once_at_the_outermost_scope(db):
+    with db.conn() as c:
+        c.execute("INSERT INTO se_reps (name, active) VALUES ('Outer', 1)")
+        with db.conn() as inner:
+            inner.execute("INSERT INTO se_reps (name, active) VALUES ('Inner', 1)")
+    with db.conn() as c:
+        names = {r["name"] for r in c.execute("SELECT name FROM se_reps")}
+    assert {"Outer", "Inner"} <= names
+
+
+def test_inner_failure_rolls_back_only_the_inner_scope(db):
+    with db.conn() as c:
+        c.execute("INSERT INTO se_reps (name, active) VALUES ('Keep', 1)")
+        with pytest.raises(ValueError):
+            with db.conn() as inner:
+                inner.execute("INSERT INTO se_reps (name, active) VALUES ('Drop', 1)")
+                raise ValueError("inner blew up")
+    with db.conn() as c:
+        names = {r["name"] for r in c.execute("SELECT name FROM se_reps")}
+    assert "Keep" in names, "the outer scope's work was lost with the inner failure"
+    assert "Drop" not in names, "the failed inner scope's write survived"
+
+
+def test_outer_failure_rolls_back_nested_work_too(db):
+    with pytest.raises(RuntimeError):
+        with db.conn() as c:
+            c.execute("INSERT INTO se_reps (name, active) VALUES ('X', 1)")
+            with db.conn() as inner:
+                inner.execute("INSERT INTO se_reps (name, active) VALUES ('Y', 1)")
+            raise RuntimeError("outer blew up")
+    with db.conn() as c:
+        names = {r["name"] for r in c.execute("SELECT name FROM se_reps")}
+    assert not ({"X", "Y"} & names)
+
+
+def test_a_helper_opening_its_own_scope_is_safe_inside_a_transaction(db):
+    """The concrete case the guard exists for: a sync writing rows and calling
+    set_setting, which opens its own scope, in the same logical transaction."""
+    with db.conn() as c:
+        c.execute("INSERT INTO se_reps (name, active) VALUES ('Rep', 1)")
+        db.set_setting("last_synced_at", "2026-09-15T00:00:00+00:00")
+    with db.conn() as c:
+        names = {r["name"] for r in c.execute("SELECT name FROM se_reps")}
+    assert "Rep" in names
+    assert db.get_setting("last_synced_at") == "2026-09-15T00:00:00+00:00"

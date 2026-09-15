@@ -235,10 +235,15 @@ def _money(amount):
     return f"${amount or 0:,.0f}"
 
 
-def _target_tw_date(row):
+def target_tw_date(row):
     """A deal's target Technical Win date: the explicit Tech Win Date when
-    set, else the commercial Close Date."""
+    set, else the commercial Close Date. Public because app.py builds the same
+    field for /api/tech-forecast and must not re-derive the fallback rule."""
     return row.get("technical_win_date") or row.get("close_date")
+
+
+# Retained for the pre-rename internal callers below.
+_target_tw_date = target_tw_date
 
 
 def _by_amount_desc(rows):

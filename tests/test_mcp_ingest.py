@@ -1,3 +1,4 @@
+import pathlib
 """The CLI bridge Claude Code uses to load MCP-fetched payloads.
 
 Two contracts worth pinning: a wrong-shaped payload must fail with a readable
@@ -6,12 +7,18 @@ exactly one line of JSON counts — never row data (CLAUDE.md's context-economy
 rule; row data here is real pipeline content).
 """
 
+import subprocess
+import sys
+import textwrap
 import json
 
 import pytest
 
 import mcp_ingest
 from conftest import DEALS_HEADER, TF_HEADER, add_rep, grid
+
+
+REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
 def write_payload(tmp_path, payload, name="_mcp_payload_test.json"):
@@ -148,3 +155,42 @@ def test_the_slack_kind_loads_matches_for_the_given_rep(monkeypatch, tmp_path, c
     out = capsys.readouterr().out
     assert json.loads(out)["new"] == 1
     assert "Sensitive customer detail" not in out
+
+
+# ── the credential-free path must not need credential libraries ──────────────
+
+def test_mcp_path_imports_and_syncs_without_gspread_or_slack_sdk(tmp_path):
+    """CLAUDE.md documents `ModuleNotFoundError: No module named 'gspread'` when
+    running mcp_ingest. The cause was structural, not environmental: the
+    MCP-assisted path is the primary one and needs no credentials, but
+    sheets_sync/slack_sync imported gspread and slack_sdk at module scope, so it
+    failed before running a line. Run it in a subprocess with those packages
+    made unavailable."""
+    script = textwrap.dedent(
+        """
+        import builtins, sys, json, os
+        real = builtins.__import__
+        def guarded(name, *a, **k):
+            top = name.split('.')[0]
+            if top in ('gspread', 'slack_sdk') or name.startswith('google.oauth2'):
+                raise ModuleNotFoundError("No module named '%s' (blocked)" % name)
+            return real(name, *a, **k)
+        builtins.__import__ = guarded
+
+        import mcp_ingest, sheets_sync, slack_sync, closed_deals_sync, tech_forecast_sync
+        from db import Database
+        db = Database(sys.argv[1]); db.init()
+        H = ['Lead Sales Engineer','Stage','Opportunity Name','Close Date','Amount','Opportunity ID']
+        gridrows = [H,
+            ['Amara Osei (1)','','','','',''],
+            ['','2 - Discovery (1)','','','',''],
+            ['','','Northwind Expansion','2026-10-31','$120,000','006AAA']]
+        print(json.dumps(sheets_sync.sync_deals_from_values(db, gridrows), sort_keys=True))
+        """
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", script, str(tmp_path / "t.db")],
+        capture_output=True, text=True, cwd=str(REPO_ROOT),
+    )
+    assert proc.returncode == 0, f"credential-free path failed:\n{proc.stderr}"
+    assert json.loads(proc.stdout.strip())["synced"] == 1

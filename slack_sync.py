@@ -8,12 +8,24 @@ scopes (see SETUP.md).
 
 from datetime import datetime, timedelta, timezone
 
-from slack_sdk import WebClient
-from slack_sdk.errors import SlackApiError
+# slack_sdk is imported inside the functions that need a token, so the
+# MCP-assisted path (`sync_slack_notes_from_matches`) runs without it installed.
 
 from db import utc_now_iso
 
 _LOOKBACK_DAYS_DEFAULT = 90
+
+
+def _slack_api_error():
+    """The `SlackApiError` class, imported on demand.
+
+    Only the token-based path can raise it, and that path has already imported
+    slack_sdk by the time this is reached — keeping it out of module scope is
+    what lets the credential-free path run without the package installed.
+    """
+    from slack_sdk.errors import SlackApiError
+
+    return SlackApiError
 
 
 def _ts_to_iso(ts: str) -> str:
@@ -24,7 +36,7 @@ def _ts_to_iso(ts: str) -> str:
     return datetime.fromtimestamp(float(ts), tz=timezone.utc).isoformat()
 
 
-def _search_for_rep(client: WebClient, slack_user_id: str, after: str | None) -> list[dict]:
+def _search_for_rep(client, slack_user_id: str, after: str | None) -> list[dict]:
     query = f"from:<@{slack_user_id}>"
     if after:
         query += f" after:{after}"
@@ -34,7 +46,7 @@ def _search_for_rep(client: WebClient, slack_user_id: str, after: str | None) ->
     while True:
         try:
             resp = client.search_messages(query=query, sort="timestamp", sort_dir="desc", count=100, page=page)
-        except SlackApiError as e:
+        except _slack_api_error() as e:
             raise RuntimeError(f"Slack search failed for {slack_user_id}: {e.response['error']}") from e
 
         matches = resp.get("messages", {}).get("matches", [])
@@ -106,6 +118,8 @@ def _load_matches(db, se_rep_id: int, matches: list[dict]) -> dict:
 
 def sync_slack_notes(db, slack_user_token: str, lookback_days: int = _LOOKBACK_DAYS_DEFAULT) -> dict:
     """Credential-based path: search as the token's user via the Slack API."""
+    from slack_sdk import WebClient
+
     client = WebClient(token=slack_user_token)
 
     with db.conn() as c:

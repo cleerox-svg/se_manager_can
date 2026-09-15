@@ -6,6 +6,7 @@ existing qualitative bullets; leaves the other two sections untouched.
 Safe to re-run.
 """
 
+import os
 from db import Database
 
 PERIOD = "2026-H2"
@@ -46,7 +47,10 @@ LEAD_BULLETS = {
 
 
 def main():
-    db = Database("se_manager_hub.db")
+    # Honour DATABASE_PATH like every other entry point: with it set, the
+    # hardcoded name silently created and seeded a SECOND, empty database
+    # while the app kept reading the real one.
+    db = Database(os.environ.get("DATABASE_PATH", "se_manager_hub.db"))
     db.init()
     with db.conn() as c:
         reps = {row["name"]: row["id"] for row in c.execute("SELECT id, name FROM se_reps")}

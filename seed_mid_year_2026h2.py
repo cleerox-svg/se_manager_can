@@ -4,6 +4,7 @@ for period 2026-H2. Run once with `py seed_mid_year_2026h2.py`; re-running overw
 same drafts (ON CONFLICT upsert), so it's safe to re-run after editing the content below.
 """
 
+import os
 from db import Database
 
 PERIOD = "2026-H2"
@@ -98,7 +99,10 @@ Manager question: "What skills or experiences do you want to prioritize next to 
 
 
 def main():
-    db = Database("se_manager_hub.db")
+    # Honour DATABASE_PATH like every other entry point: with it set, the
+    # hardcoded name silently created and seeded a SECOND, empty database
+    # while the app kept reading the real one.
+    db = Database(os.environ.get("DATABASE_PATH", "se_manager_hub.db"))
     db.init()
     with db.conn() as c:
         reps = {row["name"]: row["id"] for row in c.execute("SELECT id, name FROM se_reps")}

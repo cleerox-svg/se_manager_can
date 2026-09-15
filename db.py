@@ -43,13 +43,45 @@ class Database:
 
     @contextmanager
     def conn(self):
+        """Transaction scope on this thread's connection.
+
+        Re-entrant on purpose. The connection is shared per thread, so a nested
+        `with db.conn()` used to commit the OUTER transaction the moment the
+        inner block exited, and an inner failure rolled the outer's work back
+        with it — a caller could not safely call a helper that opens its own
+        scope (`get_setting`, `set_setting`, a report builder) from inside one.
+        Only the outermost scope commits; inner scopes get a SAVEPOINT, so an
+        inner failure undoes only its own writes and the outer block decides
+        what happens to the rest.
+        """
         con = self._get_con()
+        depth = getattr(self._local, "depth", 0)
+
+        if depth:
+            name = f"_nested_{depth}"
+            con.execute(f"SAVEPOINT {name}")
+            self._local.depth = depth + 1
+            try:
+                yield con
+            except Exception:
+                con.execute(f"ROLLBACK TO {name}")
+                con.execute(f"RELEASE {name}")
+                raise
+            else:
+                con.execute(f"RELEASE {name}")
+            finally:
+                self._local.depth = depth
+            return
+
+        self._local.depth = 1
         try:
             yield con
             con.commit()
         except Exception:
             con.rollback()
             raise
+        finally:
+            self._local.depth = 0
 
     def _migrate(self, c: sqlite3.Connection):
         cols = {row["name"] for row in c.execute("PRAGMA table_info(se_reps)")}
