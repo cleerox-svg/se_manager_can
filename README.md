@@ -359,6 +359,23 @@ Data gets in via one of two paths — see [SETUP.md](SETUP.md):
   measured against *today's* quarter, so the line doesn't silently rebase at
   a quarter boundary, and snapshots taken before those dates were recorded
   are skipped rather than plotted as $0.
+
+  **The tiles have a cold start — expect a day, not a re-sync.** A snapshot
+  row upserts on `snapshot_date`, so every sync in one day writes the *same*
+  row: three syncs today still produce one history point. The sparkline needs
+  two points and the delta deliberately compares against an earlier *day*, so
+  neither appears until your next sync on a following day. Re-running the sync
+  will not bring them up. Snapshots written before the target dates were
+  recorded don't count toward the two, so the clock starts at the first sync
+  on this code. To check a snapshot is the new format:
+
+  ```bash
+  sqlite3 se_manager_hub.db "
+  SELECT snapshot_date,
+         CASE WHEN instr(deal_states_json,'technical_win_date') > 0
+              THEN 'yes' ELSE 'NO - old code' END AS has_target_dates
+  FROM tech_forecast_snapshots ORDER BY snapshot_date DESC LIMIT 5;"
+  ```
 - `slack_notes` — synced from Slack search per rep.
 - `reviews` — drafted/edited review content, one row per (rep, period),
   `status` of `draft` or `final` — settable from either the Team page's

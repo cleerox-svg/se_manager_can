@@ -14,6 +14,13 @@ Store alias and fails.
 - SQLite via thread-local connections (`db._get_con()`), same pattern as
   NaughtRFP's `db.py` — never add a `check_same_thread=False` workaround
   elsewhere, it's already handled in the connection layer.
+- `db.conn()` is **re-entrant**, and callers may rely on that: only the
+  outermost scope commits, inner scopes take a SAVEPOINT, so an inner failure
+  undoes just its own writes. It did not used to be — a nested `with
+  db.conn()` committed the OUTER transaction as soon as the inner block
+  exited and dragged the outer's work into an inner rollback, which made it
+  unsafe to call any helper that opens its own scope (`set_setting`, a report
+  builder) from inside a transaction. Don't "simplify" the depth counter away.
 - All httpx clients calling the LiteLLM proxy need `verify=False` — Okta's
   corporate proxy does SSL inspection and breaks default cert verification.
 - Model identifiers live in `models.py` (`LITELLM_MODEL` for the LiteLLM proxy,
@@ -299,12 +306,19 @@ collapses any two of them reintroduces a shipped bug:
   "TotalEnergies" or "Total Rewards Platform".
 
 In a fresh Bash-tool session (no venv activation), `py`/`python` resolve to
-the global interpreter, not this project's venv — `py mcp_ingest.py ...`
-fails with `ModuleNotFoundError: No module named 'gspread'` even though
-`requirements.txt` is fully installed in `venv/`. Use
-`venv/Scripts/python.exe <script>` directly instead of `py <script>` when
-running ingest/sync scripts from Claude Code, rather than assuming the venv
-is on PATH.
+the global interpreter, not this project's venv, so use
+`venv/Scripts/python.exe <script>` rather than assuming the venv is on PATH.
+
+That note used to say the symptom was `ModuleNotFoundError: No module named
+'gspread'` on `py mcp_ingest.py`. That specific failure is fixed and the
+diagnosis was wrong: the cause wasn't PATH, it was that `sheets_sync` and
+`slack_sync` imported gspread/google-auth/slack_sdk at module scope, so the
+credential-free MCP path — the primary one, which needs none of them — died
+before running a line. Those imports now live inside the functions that
+actually need a credential, and `tests/test_mcp_ingest.py` runs the whole
+path in a subprocess with the packages blocked. **Don't hoist them back to
+module scope**; the wrong interpreter will still bite you on other
+dependencies, which is why the first paragraph stands.
 
 ## Fiscal quarters
 
@@ -379,6 +393,56 @@ entry verbatim rather than synthesizing new prose from it — reusing whatever
 the SE actually wrote avoids fabricating claims about a deal and keeps the
 drafted note in the user's own words/patterns, which matters more here since
 this note is meant to be pasted straight into Salesforce.
+
+## Frontend theming & charts
+
+`frontend/src/style.css` defines the palette as tokens on `:root` (dark) and
+overrides them under `body.light-mode`. Two rules matter more than the rest,
+because breaking either is invisible in the theme you happen to be looking at:
+
+- **Semantic colours are per-theme, not shared.** `--green`/`--amber`/`--red`/
+  `--purple`/`--teal` are declared in BOTH blocks with different values. They
+  used to be declared once, stepped for navy, and inherited by light mode —
+  where amber measured 2.03:1 against white while carrying the "No update this
+  week" flag. Adding a status colour means adding it twice. Same for
+  `--text-muted`. Chip fills come from the matching `--*-dim` token rather than
+  a hardcoded `rgba()`, so a badge background follows its own text colour.
+- **Light mode's surfaces must stay distinct.** `--bg-app`, `--bg-card`,
+  `--bg-card-hover`, `--bg-input`, `--bg-tag` were all `#FFFFFF`, which is not
+  just flat: hover feedback became invisible (hover colour == base colour) and
+  the progress-bar track behind every ARR bar disappeared, so a rep at 0%
+  rendered as empty space. Don't collapse them back to one white.
+
+Charts (`pages/Dashboard.jsx`, Recharts):
+
+- Presales stage is **ordinal**, so the stacked fills step along one hue
+  (`--stage-1`..`--stage-4`) rather than taking unrelated categorical colours —
+  the stack reads in stage order without consulting the legend. `Untagged`
+  means "no stage recorded" and takes `--stage-none`, a recessive neutral: as a
+  saturated grey it was the heaviest mark on the dashboard while carrying the
+  least meaning. An automated palette check rejected the old five-hue set on
+  three counts (amber outside the lightness band, the grey below the chroma
+  floor, three hues under 3:1 on white).
+- **Text never wears the series colour.** Legend labels go through
+  `legendLabel` and tooltip rows through a swatch + `--text-primary`, because
+  the pale end of a ramp is a fill colour and not a legible text colour —
+  Recharts' default made "Early Tech" nearly invisible on white.
+- Stacked bars carry a 2px `--bg-card` stroke so adjacent segments separate now
+  that they're neighbouring steps of one hue.
+
+Tables and flags:
+
+- Money columns are marked `numeric: true` in the column defs, which applies
+  `.col-num` (right-aligned + `tabular-nums`); without both, two amounts in a
+  column can't be compared by eye.
+- Deal flags carry a severity: an unowned deal is `badge-red`, stale notes
+  `badge-amber`, a missing strategy note `badge-muted`. They were all the same
+  amber, so the row needing action on Monday looked like the row that was
+  merely untidy. `staleLabel` reads `notes_last_changed_at` to say "Stale 3
+  weeks" rather than the undated wording. Note `notes_stale` is a SQLite
+  integer — guard it with `!!` in JSX or React renders a literal `0`.
+- Fields that are blank until the sheet carries them (`AE:`, Billing
+  State/Province) render nothing rather than a `-` on every row.
 
 ## Git workflow
 
