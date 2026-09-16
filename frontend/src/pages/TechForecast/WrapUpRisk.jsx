@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { assignSe, assignBackupSe } from '../../api.js';
+import { assignSe } from '../../api.js';
 import { toast } from '../../toast.js';
 import DealsTable from './DealsTable.jsx';
-import { DealFlags, SeAssignSelect, BackupSeAssignSelect, fmtMoney, oppLink, presalesStageBadge } from './dealHelpers.jsx';
+import { DealFlags, SeAssignSelect, fmtMoney, oppLink, presalesStageBadge } from './dealHelpers.jsx';
 
 function pctBar(pct, opts = {}) {
   const { modifier = '', countLabel = '' } = opts;
@@ -94,22 +94,26 @@ function opportunityCell(d) {
   );
 }
 
-function buildWrapUpColumns(reps, onAssign, onAssignBackup) {
+function buildWrapUpColumns(reps, onAssign) {
   return [
     { key: 'opportunity', header: 'Opportunity', render: opportunityCell },
     { key: 'presales_stage', header: 'Presales Stage', render: (d) => presalesStageBadge(d.presales_stage) },
     { key: 'confidence', header: 'Confidence', render: (d) => d.confidence || '-' },
     { key: 'amount', header: 'Amount', numeric: true, render: (d) => fmtMoney(d.amount) },
     { key: 'se', header: 'SE', render: (d) => <SeAssignSelect d={d} reps={reps} onAssign={onAssign} /> },
-    { key: 'backup_se', header: 'Backup SE', render: (d) => <BackupSeAssignSelect d={d} reps={reps} onAssign={onAssignBackup} /> },
     { key: 'flags', header: 'Flags', render: (d) => <DealFlags d={d} /> },
   ];
 }
 
-export function WinRateClosedDeals({ winRateSummary }) {
+export function WinRateClosedDeals({ winRateSummary, directReportOnly, onToggleDirectReport }) {
   return (
     <div className="card">
-      <div className="card-title">Win Rate — Closed Deals</div>
+      <div className="card-title-row">
+        <div className="card-title">Win Rate — Closed Deals</div>
+        <button type="button" className="btn" onClick={onToggleDirectReport}>
+          {directReportOnly ? 'My team' : 'All reps'}
+        </button>
+      </div>
       {winRateSummary ? <WinRateSummary summary={winRateSummary} /> : <div className="empty-state">Loading...</div>}
     </div>
   );
@@ -135,20 +139,7 @@ export default function WrapUpRisk({ deals, reps, onAssigned }) {
     }
   }
 
-  async function handleAssignBackup(sheetKey, value) {
-    setBusy(true);
-    try {
-      await assignBackupSe(sheetKey, value ? Number(value) : null, null);
-      toast('Backup SE assignment updated', 'success');
-      await onAssigned?.();
-    } catch {
-      toast('Failed to update backup SE assignment', 'error');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const wrapUpColumns = buildWrapUpColumns(reps, handleAssign, handleAssignBackup);
+  const wrapUpColumns = buildWrapUpColumns(reps, handleAssign);
 
   return (
     <div className="card" id="risk-section">
