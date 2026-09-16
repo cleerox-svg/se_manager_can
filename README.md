@@ -312,12 +312,14 @@ Data gets in via one of two paths — see [SETUP.md](SETUP.md):
 
 ## Data model
 
-- `se_reps` — roster, Slack user ID, active/inactive flag, `arr_target`
-  (full-fiscal-year closed-won ARR target, manager-set — seeded once via
-  `seed_arr_targets.py`, editable in place from the Team page). A Lead SE
-  name the deals sync sees for the first time is inserted **inactive**, so a
-  new (or typo'd) name never becomes a current direct report on its own —
-  activate it from the Team page after a look.
+- `se_reps` — roster, Slack user ID, active/inactive flag, `direct_report`
+  flag (marks Claude Leroux's current direct reports — backfilled by name in
+  `db.py`'s migration on every startup, not yet editable from the UI),
+  `arr_target` (full-fiscal-year closed-won ARR target, manager-set —
+  seeded once via `seed_arr_targets.py`, editable in place from the Team
+  page). A Lead SE name the deals sync sees for the first time is inserted
+  **inactive**, so a new (or typo'd) name never becomes a current direct
+  report on its own — activate it from the Team page after a look.
 - `deals` — synced from the Team Tracking Sheet's open-pipeline tab, one row
   per open opportunity.
 - `closed_deals` — synced from the Team Tracking Sheet's closed-deal export
@@ -335,7 +337,14 @@ Data gets in via one of two paths — see [SETUP.md](SETUP.md):
   aggregates both into win-rate percentages — team-wide and per-rep —
   rendered as `% Closed Won` / `% Tech Win` bars on the Technical Forecast
   page; both percentages vary meaningfully by rep since the tab mixes Won and
-  Lost outcomes. The team-wide block shows two figures side by side: the
+  Lost outcomes. A "My team" / "All reps" toggle drives the whole Technical
+  Forecast page's data fetch — deals, recent wins, and every derived ARR/win-rate
+  total on the page, not just this card — passing `?direct_report=1` to scope
+  the numbers to `se_reps.direct_report` reps only ("My team," the default);
+  omitting the param (or `0`) keeps today's unfiltered "All reps" view. The
+  filter resolves the *effective* SE (`attribution.py`'s three-step precedence),
+  not the raw `se_rep_id` column, so deals attributed via manual override or
+  Lead SE name match are still scoped correctly. The team-wide block shows two figures side by side: the
   all-time rate across the whole sheet, and a second rate scoped to deals
   closed within the current Okta fiscal quarter (`team_current_quarter`,
   labeled with that quarter, e.g. "FY26-Q3") — added since the all-time
