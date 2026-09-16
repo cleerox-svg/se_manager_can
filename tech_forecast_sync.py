@@ -1,35 +1,36 @@
 """Pulls the Team Tracking Sheet's "Claude This q and next" tab (Technical
-Forecast export — Presales Stage, Deal Forecast Status, Technical Win Date)
-into the local `tech_forecast_deals` table. The sheet itself auto-refreshes
-every 24 hours, so a live MCP fetch of this tab is always considered fresh —
-this script does no staleness-of-fetch checking of its own.
+Forecast export — Presales Stage, Technical Win Date) into the local
+`tech_forecast_deals` table. The sheet itself auto-refreshes every 24 hours,
+so a live MCP fetch of this tab is always considered fresh — this script does
+no staleness-of-fetch checking of its own.
 
-Same grouped/hierarchical layout as the other tabs, nested two levels deep:
-Lead Sales Engineer > Deal Forecast Status > individual deal rows. Each
-level's group-header cell carries a row-count suffix ("Nic Da Silva (9)",
-"Strong (8)") and each level has its own Subtotal row where the *next*
-column over reads the literal word "Subtotal" instead of a real group name.
-Deals with no Lead SE assigned yet group under a bare "-" instead of a name.
-We forward-fill both group columns and drop any row with a blank
-Opportunity Name (true for every subtotal/total row at every level, so it
-alone is a reliable skip check).
+As of 2026-09-15, the sheet dropped both former group columns entirely:
+"Lead Sales Engineer" (the column `attribution.py`'s step-2 name match keys
+on) and "Deal Forecast Status". Neither exists anywhere in the reformatted
+tab, structured or otherwise — the closest surviving per-deal SE signal is
+informal initials hand-typed inside the freeform Pre-Sales Notes/Pre-Sales
+Next Steps text (e.g. "RK Aug-10-2026 : ..."), which is not a reliable basis
+for automated attribution, so we don't attempt to parse it. Neither column
+is in `_REQUIRED_HEADERS` any more, so their absence doesn't fail the sync;
+both stay mapped in `_HEADER_MAP` and left in `_GROUP_LEVELS` for forward
+compatibility (if the columns ever come back, grouping resumes working with
+no code change) — with the mapped cells always missing, `_normalize_values`'s
+existing fill/pending logic just inherits an empty fill and buffers forever,
+which is harmless: every row ends up with `lead_se_name`/`forecast_status`
+NULL, never crashes or misattributes. `attribution.py`'s existing step-3
+opportunity_name→`deals.se_rep_id` fallback is what actually attributes
+these rows now, not a backstop for rows the name match misses. One accepted
+side effect: `tech_forecast_report.py`'s `build_needs_lead_se` reads the raw
+(non-attribution-resolved) name by design, so with it always blank that
+check now flags every tech-forecast deal rather than genuinely unassigned
+ones — a real, expected consequence of the reformat, not a bug in this sync.
 
-As of 2026-09-02, Presales Stage is a flat per-deal column (like Stage or
-Account Region), not a group level — each row carries its own value
-(genuinely blank for some deals, e.g. brand-new pipeline not yet staged),
-read straight through by the normal per-row cell mapping below. It used to
-be the middle level of a three-level nesting (Lead SE > Presales Stage >
-Deal Forecast Status); the sheet's underlying query was restructured to
-expose it per-deal instead, which is strictly more precise for tracking
-individual opportunities. Don't add it back to `_GROUP_LEVELS`.
+Presales Stage remains a flat per-deal column (like Stage or Account
+Region), genuinely blank for some deals not yet staged.
 
-Unlike the old "Satish Technical Forecast Current Q" tab this replaced, the
-sheet now carries real Lead SE attribution natively (`lead_se_name`), so
-`app.py` prefers a name match against `se_reps` over the old opportunity-
-name-join heuristic — the join is kept only as a fallback for rows the name
-match misses. `lead_se_name` being blank (the "-" group) is also surfaced
-directly as `needs_lead_se` in `tech_forecast_report.py`, independent of
-whatever attribution the app manages to resolve.
+Since the sheet no longer carries native Lead SE attribution, `app.py`'s
+name-match step is now always a no-op for these rows; only the
+opportunity-name join fallback resolves them.
 
 The sheet splits notes into three distinct columns — Pre-Sales Notes, SE
 Manager Notes, and Pre-Sales Next Steps — all kept as separate fields.
@@ -97,10 +98,11 @@ _GROUP_LEVELS = ("lead_se_name", "forecast_status")
 
 # Headers we cannot do without: losing any one of them either empties the sync
 # or silently re-keys every row. A header that isn't here may go missing
-# without failing the sync (its column is simply dropped).
+# without failing the sync (its column is simply dropped). Lead Sales Engineer
+# and Deal Forecast Status used to be required; both are gone from the live
+# sheet as of 2026-09-15 (see module docstring) and dropping a column that
+# isn't required just means that column comes back empty, not a sync failure.
 _REQUIRED_HEADERS = (
-    "Lead Sales Engineer",
-    "Deal Forecast Status",
     "Opportunity Name",
     "Close Date",
     "Amount (converted)",

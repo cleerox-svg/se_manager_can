@@ -60,10 +60,13 @@ on [NaughtRFP](../rfp-responder)'s stack and Okta dark-theme UI.
   Okta's Presales Technical Win Process, synced from the Team Tracking
   Sheet's Technical Forecast tab (currently "Claude This q and next" —
   auto-refreshes every 24h, tab names get renamed by the user from time to
-  time, see CLAUDE.md). The sheet is grouped by Lead Sales Engineer first,
-  then Deal Forecast Status, including a literal "no Lead SE assigned yet"
-  group — see "SE attribution" below. Presales Stage is a flat per-deal
-  column (not a group level), genuinely blank for deals not yet staged. The
+  time, see CLAUDE.md). As of 2026-09-15 the sheet dropped both "Lead Sales
+  Engineer" and "Deal Forecast Status" entirely — there is no per-deal SE
+  or forecast-confidence signal left in the tab at all, so every synced row
+  now attributes purely via the opportunity-name→`deals.se_rep_id` fallback
+  (see "SE attribution" below) rather than a name match, and forecast
+  status is always blank. Presales Stage remains a flat per-deal column
+  (not a group level), genuinely blank for deals not yet staged. The
   sheet's query also carries deals belonging to Greg Rainbird's sales org
   (a different team) — those are kept but tagged with a `product`/`segment`
   pair during sync so they stay visible while clearly marked as another org's,
@@ -324,15 +327,29 @@ Data gets in via one of two paths — see [SETUP.md](SETUP.md):
   closed within the current Okta fiscal quarter (`team_current_quarter`,
   labeled with that quarter, e.g. "FY26-Q3") — added since the all-time
   figure alone reads as "recent" performance when it actually spans the
-  whole season. Per-rep breakdown stays all-time only.
+  whole season. Per-rep breakdown stays all-time only. As of the 2026-09-15
+  reformat, the tab dropped its "Team Member Name" column (and the old
+  three-level Team Member Name > Team Role > Region grouping with it) down
+  to a flat single-manager export — there is no per-deal SE signal left in
+  this tab at all, so every row now attributes as `rep_name = "Unassigned"`
+  (`se_rep_id = NULL`); the per-rep breakdown above is now empty/uninformative
+  for this table until a per-deal SE column returns to the sheet. Closed-won
+  vs. closed-lost detection is unaffected, since it keys on `sales_stage`,
+  not `rep_name`.
 - `tech_forecast_deals` — synced from the Team Tracking Sheet's Technical
-  Forecast tab, one row per open deal in the technical-win pipeline
-  (`lead_se_name` straight from the sheet, Presales Stage — a flat per-deal
+  Forecast tab, one row per open deal in the technical-win pipeline. As of
+  the 2026-09-15 reformat, the sheet dropped "Lead Sales Engineer" and
+  "Deal Forecast Status" entirely — `lead_se_name` and `forecast_status` are
+  always stored NULL now (the column mappings and group levels stay in
+  `tech_forecast_sync.py` for forward compatibility, in case the columns
+  come back, but nothing currently populates them), so every row attributes
+  via the opportunity-name→`deals.se_rep_id` fallback (see "SE attribution"
+  above) rather than a name match, and `tech_forecast_report.py`'s
+  `build_needs_lead_se` — which reads the raw sheet name, not the resolved
+  attribution — now flags every deal rather than genuinely unassigned ones.
+  What's left: Presales Stage — a flat per-deal
   field, genuinely blank for un-staged deals — Confidence and Billing
-  State/Province (both new fields, replacing Deal Forecast Status as the
-  visible column/grouping axis everywhere; Forecast Status is still synced
-  and stored, just no longer rendered as a column — it now only backs the
-  Wrap-Up & Risk filter and the Macro View "Forecasted Risk" stat tile),
+  State/Province,
   Technical Win Date, overall Stage, Pre-Sales Notes, SE Manager Notes,
   Pre-Sales Next Steps, plus a manually-set `assigned_se_rep_id`
   override — see "SE attribution" above).

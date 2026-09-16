@@ -1,10 +1,17 @@
 """The grouped/hierarchical sheet layout, per sync module.
 
-All three tabs export group columns that are populated only on a group's
-first row, interspersed with subtotal rows whose marker text can land one
-column over from its own level. Getting this wrong does not raise — it
-reassigns a deal to the wrong SE, which is how NOVA Chemicals and MacEwan
-University lost their Lead SE (commit bf03fc7).
+The deals tab and the tech forecast tab export group columns that are
+populated only on a group's first row, interspersed with subtotal rows
+whose marker text can land one column over from its own level. Getting
+this wrong does not raise — it reassigns a deal to the wrong SE, which is
+how NOVA Chemicals and MacEwan University lost their Lead SE (commit
+bf03fc7).
+
+The closed deals tab lost its own three-level Team Member Name > Team Role
+> Region grouping when the live sheet was reformatted to a flat,
+single-manager export on 2026-09-15 — closed_deals_sync.py no longer maps
+or forward-fills any group column, so there is nothing left to test that
+here (see closed_deals_sync.py's module docstring for the current layout).
 
 Every grid below is synthetic.
 """
@@ -117,76 +124,11 @@ def test_deals_header_mismatch_raises_naming_the_missing_column():
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# closed deals tab — three group levels + running-dollar-total suffixes
+# closed deals tab — flat, no grouping (the three-level Team Member Name >
+# Team Role > Region layout was dropped from the live sheet on 2026-09-15;
+# closed_deals_sync.py no longer maps or forward-fills any group column, so
+# there is nothing left to test forward-fill/cascade/bare-dash behavior on)
 # ═══════════════════════════════════════════════════════════════════════
-def test_closed_deals_three_group_levels_forward_fill():
-    rows = closed_rows(
-        {"Team Member Name": "Sean Keleher (USD 1,099,753.82)", "Team Role": "Lead SE",
-         "Opportunity : Account Name : Account Owner : User Sales Region": "West",
-         "Opportunity Name": "Alpha Win", "Amount (converted)": "USD 100,000.00",
-         "Close Date": "5/4/2026", "Stage": "10 - Closed/Won",
-         "Presales Stage": "6 - Technical Win"},
-        {"Opportunity Name": "Beta Win", "Amount (converted)": "USD 50,000.00",
-         "Close Date": "5/6/2026", "Stage": "10 - Closed/Won"},
-    )
-    assert [r["rep_name"] for r in rows] == ["Sean Keleher", "Sean Keleher"]
-    assert [r["team_role"] for r in rows] == ["Lead SE", "Lead SE"]
-    assert [r["region"] for r in rows] == ["West", "West"]
-
-
-def test_closed_deals_running_dollar_total_suffix_is_stripped_from_the_rep_name():
-    rows = closed_rows(
-        {"Team Member Name": "Rishika Kondaveeti (USD 2,538,735.02)", "Team Role": "Lead SE",
-         "Opportunity Name": "Alpha Win", "Amount (converted)": "USD 1.00",
-         "Close Date": "5/4/2026", "Stage": "10 - Closed/Won", "Presales Stage": ""},
-    )
-    assert rows[0]["rep_name"] == "Rishika Kondaveeti"
-
-
-def test_closed_deals_new_rep_does_not_inherit_the_previous_reps_role_or_region():
-    rows = closed_rows(
-        {"Team Member Name": "Sean Keleher (USD 10.00)", "Team Role": "Lead SE",
-         "Opportunity : Account Name : Account Owner : User Sales Region": "West",
-         "Opportunity Name": "Alpha Win", "Amount (converted)": "USD 10.00",
-         "Close Date": "5/4/2026", "Stage": "10 - Closed/Won", "Presales Stage": ""},
-        {"Team Member Name": "Amara Osei (USD 20.00)", "Team Role": "", "Opportunity Name": "Beta Win",
-         "Amount (converted)": "USD 20.00", "Close Date": "5/5/2026",
-         "Stage": "10 - Closed/Won", "Presales Stage": ""},
-    )
-    assert rows[1]["rep_name"] == "Amara Osei"
-    assert rows[1]["team_role"] == ""
-    assert rows[1]["region"] == ""
-
-
-def test_closed_deals_marker_row_keeps_buffering_a_late_arriving_rep_name():
-    """The NOVA Chemicals / MacEwan regression (bf03fc7), on this tab's loop:
-    a group whose name only appears on its trailing Subtotal row must still
-    backfill onto the deal rows already read, and an intervening marker row
-    must not discard that buffer."""
-    rows = closed_rows(
-        {"Opportunity Name": "NOVA Chemicals Renewal", "Amount (converted)": "USD 10.00",
-         "Close Date": "5/4/2026", "Stage": "10 - Closed/Won", "Presales Stage": ""},
-        {"Team Member Name": "Subtotal", "Opportunity Name": ""},
-        {"Team Member Name": "Rishika Kondaveeti (USD 2,538,735.02)", "Team Role": "Lead SE",
-         "Opportunity Name": "MacEwan University Expansion", "Amount (converted)": "USD 20.00",
-         "Close Date": "5/5/2026", "Stage": "10 - Closed/Won", "Presales Stage": ""},
-    )
-    assert [r["rep_name"] for r in rows] == ["Rishika Kondaveeti", "Rishika Kondaveeti"]
-
-
-def test_closed_deals_bare_dash_rep_reads_as_unassigned_rather_than_a_person():
-    rows = closed_rows(
-        {"Team Member Name": "Sean Keleher (USD 10.00)", "Team Role": "Lead SE",
-         "Opportunity Name": "Alpha Win", "Amount (converted)": "USD 10.00",
-         "Close Date": "5/4/2026", "Stage": "10 - Closed/Won", "Presales Stage": ""},
-        {"Team Member Name": "-", "Opportunity Name": "Ownerless Win",
-         "Amount (converted)": "USD 20.00", "Close Date": "5/5/2026",
-         "Stage": "10 - Closed/Won", "Presales Stage": ""},
-    )
-    assert rows[1]["rep_name"] == ""
-    assert rows[1]["rep_name"] != "-"
-
-
 def test_closed_deals_technical_win_flag_comes_from_the_flat_presales_stage_column():
     rows = closed_rows(
         {"Team Member Name": "Sean Keleher (USD 10.00)", "Opportunity Name": "Tech Win Deal",

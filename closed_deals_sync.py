@@ -2,33 +2,27 @@
 (closed deals export, both Closed/Won and Closed/Lost) into the local
 `closed_deals` table.
 
-Grouped/hierarchical layout nested three levels deep: Team Member Name >
-Team Role > Region (`_GROUP_LEVELS`), each group-header cell carrying a
-running dollar total suffix instead of a row count, e.g. "Rishika
-Kondaveeti (USD 2,538,735.02)" rather than "Nic Da Silva (9)". We
-forward-fill all three group columns and cascade the reset downward — same
-pattern as tech_forecast_sync.py's lead_se_name > forecast_status grouping —
-so changing rep_name resets team_role and region, and changing team_role
-resets region, meaning a new rep's or role's first row never inherits a
-stale value left over from the group above it. As with tech_forecast_sync.py,
-a `pending` buffer retroactively backfills deal rows in case a group's name
-only ever appears on its own trailing Subtotal row rather than its leading
-row. Team Role and Region are grouping-only fields used to walk this
-structure correctly — neither is persisted to `closed_deals`.
+Flat layout, one row per closed opportunity — no grouping/hierarchy. As of
+2026-09-15 the sheet dropped the old three-level Team Member Name > Team
+Role > Region grouping, and the "Team Member Name" column is gone entirely.
+What's left is flat "Manager" (constant "Claude Leroux" on every row) and
+"Opportunity Owner" (constant "Matt Hatherley", the account owner) — neither
+varies per deal, so neither is a usable per-deal presales-SE signal, and
+there is no column left in this tab to source `rep_name` from. Every row
+now attributes as "Unassigned" (`se_rep_id = NULL`) via the same fallback
+`load_rows` already used for any row with no SE tag; this has no effect on
+closed-won/closed-lost detection, which keys on Stage, not rep_name.
 
 Stage carries both "10 - Closed/Won" and a Closed/Lost value — the tab is
-scoped to closed deals, not won deals only. Presales Stage is a separate
-flat per-row column (blank, or "6 - Technical Win") that drives the
-`tech_win` flag — it is not a group level.
+scoped to closed deals, not won deals only. Presales Stage is a flat
+per-row column (blank, or "6 - Technical Win") that drives the `tech_win`
+flag.
 
 We drop subtotal/total rows and any row with a blank Opportunity Name to get
-one clean row per closed opportunity. Group-cell parsing now goes through
-`sheet_parse.strip_group_label`, which converges this tab on the *safest* of
-the three syncs' previously divergent behaviours: a bare Subtotal/Total marker
-is treated as row-shape noise (inherit the fill, keep buffering) rather than a
-group boundary, and a bare "-" — previously unhandled here, so it
-forward-filled into `rep_name` as if it were a person — now reads as "nobody
-assigned" and lands as "Unassigned".
+one clean row per closed opportunity. The marker test is an EXACT match
+against the Opportunity Name cell, not a substring scan — a substring scan
+would drop any real opportunity whose name merely contained "total"
+("TotalEnergies", "Total Rewards Platform").
 """
 
 import sheet_parse
@@ -36,9 +30,6 @@ from constants import PRESALES_TECH_WIN
 from db import utc_now_iso
 
 _HEADER_MAP = {
-    "Team Member Name": "rep_name",
-    "Team Role": "team_role",
-    "Opportunity : Account Name : Account Owner : User Sales Region": "region",
     "Opportunity Name": "opportunity_name",
     "Amount (converted)": "amount",
     "Close Date": "close_date",
@@ -47,13 +38,9 @@ _HEADER_MAP = {
     "Stage": "sales_stage",
 }
 
-_GROUP_LEVELS = ("rep_name", "team_role", "region")
-
 # Headers we cannot do without: losing any one of them either empties the sync
-# or silently re-keys every row (see sheet_parse.build_sheet_key). The long
-# Region header is not in here — it's grouping-only and never persisted.
+# or silently re-keys every row (see sheet_parse.build_sheet_key).
 _REQUIRED_HEADERS = (
-    "Team Member Name",
     "Opportunity Name",
     "Amount (converted)",
     "Close Date",
@@ -63,25 +50,15 @@ _REQUIRED_HEADERS = (
 
 
 def _is_skip_row(cells: dict) -> bool:
-    """Drop subtotal/total rows and anything without an opportunity name.
-
-    The marker test is an EXACT match against each cell, not a substring scan
-    over the concatenated fields: that scan silently dropped any real
-    opportunity whose name merely contained "total" — "TotalEnergies", "Total
-    Rewards Platform" — which looks identical to the deal never having been
-    in the sheet.
-    """
+    """Drop subtotal/total rows and anything without an opportunity name."""
     if not (cells.get("opportunity_name") or "").strip():
         return True
-    return any(
-        sheet_parse.is_marker_cell(cells.get(field))
-        for field in ("opportunity_name", *_GROUP_LEVELS)
-    )
+    return sheet_parse.is_marker_cell(cells.get("opportunity_name"))
 
 
 def _normalize_values(values: list[list[str]]) -> list[dict]:
     """Turn a raw grid (header row + data rows) into one normalized dict per
-    real closed opportunity."""
+    real closed opportunity. Flat layout — no forward-fill needed."""
     if not values:
         return []
 
@@ -90,60 +67,11 @@ def _normalize_values(values: list[list[str]]) -> list[dict]:
     )
 
     rows: list[dict] = []
-    fill = {level: "" for level in _GROUP_LEVELS}
-    # A group's name usually rides on its first deal row (normal leading
-    # label, forward-filled below), but some groups' name may only ever
-    # appear on that group's own trailing Subtotal row, after every one of
-    # its deals has already been read — same quirk tech_forecast_sync.py
-    # handles for Lead SE groups. `pending` buffers deal rows since the last
-    # resolved boundary at each level so a late-arriving name can be
-    # backfilled retroactively onto rows already appended to `rows` (the
-    # buffered dicts are the same objects, mutated in place).
-    pending: dict[str, list[dict]] = {level: [] for level in _GROUP_LEVELS}
-
     for raw_row in values[1:]:
         cells = {}
         for key, val in zip(col_keys, raw_row):
             if key:
                 cells[key] = (val or "").strip()
-
-        for level in _GROUP_LEVELS:
-            label = sheet_parse.strip_group_label(cells.get(level, ""))
-            if label is None:
-                # Blank cell, or a bare Subtotal/Total marker. Previously a
-                # marker reset `fill`/`pending` here; it no longer does. A
-                # marker is row-shape noise that can land one column over from
-                # its own level, and resetting on it discards deal rows still
-                # buffered waiting for a late-arriving group name — the bug
-                # bf03fc7 fixed in tech_forecast_sync, which this tab's copy
-                # of the loop still had. Inherit the fill and keep buffering.
-                cells[level] = fill[level]
-                if not fill[level] and cells.get("opportunity_name"):
-                    pending[level].append(cells)
-                continue
-
-            if label:
-                for pending_row in pending[level]:
-                    pending_row[level] = label
-                cells[level] = label
-            else:
-                # Bare "-" placeholder: a genuine "nobody assigned" boundary.
-                # This tab's stripper used to have no "-" case at all, so a
-                # literal "-" forward-filled into `rep_name` as though it were
-                # a person's name; load_rows now maps the resulting blank to
-                # "Unassigned" like any other unattributed row.
-                cells[level] = ""
-            pending[level] = []
-            fill[level] = cells[level]
-            # Cascade the reset downward: a new rep's (or role's) first row
-            # must never inherit the group below it from the previous one.
-            if level == "rep_name":
-                fill["team_role"] = fill["region"] = ""
-                pending["team_role"] = []
-                pending["region"] = []
-            elif level == "team_role":
-                fill["region"] = ""
-                pending["region"] = []
 
         if _is_skip_row(cells):
             continue
@@ -154,7 +82,7 @@ def _normalize_values(values: list[list[str]]) -> list[dict]:
     return rows
 
 
-_FINGERPRINT_FIELDS = ("rep_name", "opportunity_name", "opportunity_id", "sales_stage", "tech_win")
+_FINGERPRINT_FIELDS = ("opportunity_name", "opportunity_id", "sales_stage", "tech_win")
 
 
 def _row_fingerprint(row: dict, close_date, amount) -> str:

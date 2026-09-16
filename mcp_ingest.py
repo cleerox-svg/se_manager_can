@@ -12,22 +12,24 @@ Usage:
         gspread's get_all_values())
 
     py mcp_ingest.py closed_deals <json_file>
-        {"values": [["Team Member Name", "Team Role",
-                      "Opportunity : Account Name : Account Owner : User Sales Region",
-                      "Opportunity Name", "Manager", "Amount (converted)", "Opportunity Owner",
+        {"values": [["Opportunity Name", "Amount (converted)", "Opportunity Owner",
                       "Close Date", "Stage", "Presales Stage", "Opportunity ID"],
-                     ["Rishika Kondaveeti (USD 2,538,735.02)", "Lead Sales Engineer (USD 2,538,735.02)",
-                      "Canada (USD 2,538,735.02)", "Teknion - ODA", "Claude Leroux", " $ 3,064.52 ",
-                      "Matt Hatherley", "5/4/2026", "10 - Closed/Won", "", "006WR00000hfyU8"], ...]}
+                     ["Teknion - ODA", " $ 3,064.52 ", "Matt Hatherley", "5/4/2026",
+                      "10 - Closed/Won", "", "006WR00000hfyU8"], ...]}
         (the raw "Canada SE Closed This Fiscal Year" grid from the Team
-        Tracking Sheet, nested three levels deep: Team Member Name > Team
-        Role > Region)
+        Tracking Sheet — as of the 2026-09-15 reformat this is a flat,
+        single-manager export with no Team Member Name/Team Role/Region
+        grouping and no per-deal SE column at all)
 
     py mcp_ingest.py tech_forecast <json_file>
-        {"values": [["Account Owner AVP Region", "Presales Stage", "Deal Forecast Status",
-                      "Amount (converted)", "Opportunity Name", ..., "Technical Win Date", ...],
-                     ["AMER CAN (11)", "2 - Discovery & Technical Qualification (1)", "Strong (1)", ...], ...]}
-        (the raw "Sheet4" grid from the Team Tracking Sheet)
+        {"values": [["Presales Stage", "Amount (converted)", "Opportunity Name",
+                      "Opportunity ID", "Opportunity Owner", "Stage", "Close Date", ...],
+                     ["2 - Discovery & Technical Qualification", " $ 3,064.52 ", "Teknion - ODA",
+                      "006WR00000hfyU8", "Matt Hatherley", "10 - Closed/Won", "5/4/2026", ...], ...]}
+        (the raw "Claude This q and next" grid from the Team Tracking Sheet —
+        as of the 2026-09-15 reformat "Lead Sales Engineer" and "Deal Forecast
+        Status" are both gone, so SE attribution comes only from the
+        opportunity-name join fallback in attribution.py)
 
     py mcp_ingest.py slack <json_file>
         {"se_rep_id": 5, "matches": [

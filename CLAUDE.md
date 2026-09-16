@@ -140,17 +140,17 @@ sheet as CSV — it cannot target a tab by name. To read a specific tab,
 authenticate and use the dedicated `mcp__google_sheets__*` tools instead:
 `get_spreadsheet_info` to confirm the current tab name/gid, then
 `read_sheet_values` with an explicit `TabName!A1:Z1000`-style range.
-`closed_deals_sync.py` normalizes Sheet3's grid, but it's nested three
-levels deep rather than SFDC's two: Team Member Name > Team Role > Region
-(`_GROUP_LEVELS = ("rep_name", "team_role", "region")`). Each group-header
-cell carries a running dollar total suffix instead of a row count, e.g.
-`"Sean Keleher (USD 1,099,753.82)"`; both that form and the `(9)` row-count
-form are stripped by the shared `sheet_parse.strip_group_label`, so there is
-no per-tab strip regex any more. Team Role and Region are grouping-only
-fields used to walk the structure — neither is persisted to `closed_deals`.
-Stage carries both "10 - Closed/Won" and a Closed/Lost value — the tab
-covers all closed deals, not won deals only. Presales Stage is the separate
-flat per-row column that drives `tech_win`.
+As of 2026-09-15 the sheet dropped its old three-level Team Member Name >
+Team Role > Region grouping — it's now a flat, single-manager export, one
+row per closed opportunity, no grouping/hierarchy left at all.
+`closed_deals_sync.py` no longer has a `_GROUP_LEVELS` or calls
+`sheet_parse.strip_group_label`; it just maps the flat header via
+`map_header`. "Manager" (always "Claude Leroux") and "Opportunity Owner"
+(the account owner) are constant/per-owner, not per-deal, so neither is a
+usable `rep_name` source any more — every row attributes as "Unassigned"
+(`se_rep_id = NULL`). Stage carries both "10 - Closed/Won" and a Closed/Lost
+value — the tab covers all closed deals, not won deals only. Presales Stage
+is the separate flat per-row column that drives `tech_win`.
 
 **Rule: every dollar query against `closed_deals` filters on
 `constants.STAGE_CLOSED_WON` — import the constant, don't re-type the
@@ -197,24 +197,20 @@ Don't re-write the COALESCE at a new call site — interpolate the constant
 fast: `idx_deals_opp_name` and the `lower(name)` expression index on
 `se_reps`).
 
-"Claude This q and next" is nested one level deeper than SFDC/Sheet3:
-group-header rows run Lead Sales Engineer > Deal Forecast Status, each
-carrying a `(<count>)` suffix, before the individual deal rows. Deals with
-no Lead SE assigned yet group under a bare `-` instead of a name —
-`tech_forecast_sync.py` treats that the same as blank so it never
-forward-fills into a real name. `_normalize_values` forward-fills both
-levels and cascades the reset down: changing `lead_se_name` resets
-`forecast_status` — a new Lead SE's first status group must never inherit
-the previous SE's leftover fill. Unlike SFDC/Sheet3, every subtotal/
-group-header row here is reliably identifiable by a blank Opportunity Name
-column, so there's no need for a marker-string check — confirmed against
-the live grid before writing the skip logic.
-
-As of 2026-09-02, Presales Stage is a flat per-deal column (like Stage or
-Account Region), not a group level — the sheet's underlying query was
+As of 2026-09-02, Presales Stage became a flat per-deal column (like Stage
+or Account Region), not a group level — the sheet's underlying query was
 restructured to expose it per-deal (genuinely blank for some deals not yet
-staged) instead of as the old middle grouping level. Don't add it back to
-`_GROUP_LEVELS` in `tech_forecast_sync.py`.
+staged) instead of as the old middle grouping level.
+
+As of 2026-09-15, "Claude This q and next" dropped both "Lead Sales
+Engineer" and "Deal Forecast Status" entirely — there is no grouping left
+on this tab at all, and `tech_forecast_sync.py` has no `_GROUP_LEVELS`.
+`lead_se_name` and `forecast_status` are always `NULL` in `tech_forecast_deals`
+now; attribution falls through to `attribution.py`'s opportunity-name join
+against `deals.se_rep_id` as the sole remaining signal. One consequence:
+`tech_forecast_report.py`'s `build_needs_lead_se`, which reads the raw
+`lead_se_name`, now flags every tech-forecast deal rather than genuinely
+unassigned ones — a known, accepted side effect, not a bug to chase.
 
 The sheet's query isn't scoped to our team only — it also carries deals
 whose Opportunity Owner: Manager is Greg Rainbird, a different sales org.
@@ -292,10 +288,10 @@ collapses any two of them reintroduces a shipped bug:
   boundary: reset the fill at this level and cascade the reset downward, so
   the next group can't inherit the previous one's name. `sheets_sync.py`
   passes `unassigned="Unassigned"` instead, which makes `-` a normal named
-  group that forward-fills like any other lead; `closed_deals_sync.py` takes
-  the default `""` and `load_rows` maps the blank to `"Unassigned"` when it
-  writes `rep_name` (it previously had no `-` case at all, so a literal `-`
-  forward-filled as though it were a person);
+  group that forward-fills like any other lead. (`closed_deals_sync.py` no
+  longer calls `strip_group_label` at all — its tab lost its grouping
+  entirely on 2026-09-15, so `row.get("rep_name")` is always unset and
+  `load_rows` falls back to `"Unassigned"` unconditionally.);
 - `None` for a blank cell or a bare `Subtotal`/`Total` marker — row-shape
   noise, *not* a boundary. Inherit the current fill and keep buffering.
   Marker text can land one column over from its own level, so resetting on it
@@ -492,7 +488,7 @@ scratchpad for one task, not a running log.
 | `sheet_parse.py` | Shared grouped-sheet parsing/loading for the three sheet syncs: `parse_amount`, `parse_date`, `strip_group_label`, `is_marker_cell`, `map_header`, `build_sheet_key`, `row_fingerprint`, `match_rekeyed_rows`, `guard_row_shrink`, `delete_keys`, `write_setting`. No db/Flask/gspread imports |
 | `sheets_sync.py` | Google Sheets "Lead SE Pipeline SFDC" tab → `deals` table |
 | `closed_deals_sync.py` | Google Sheets "Canada SE Closed This Fiscal Year" tab (closed-deal export, Won and Lost, technical-win flag) → `closed_deals` table |
-| `tech_forecast_sync.py` | Google Sheets "Claude This q and next" tab (Technical Forecast pipeline, grouped Lead SE > Deal Forecast Status, Presales Stage flat per-deal) → `tech_forecast_deals` table; also captures the daily snapshot used for week-over-week deltas |
+| `tech_forecast_sync.py` | Google Sheets "Claude This q and next" tab (Technical Forecast pipeline, flat layout as of 2026-09-15 — no Lead SE/Deal Forecast Status grouping, Presales Stage flat per-deal) → `tech_forecast_deals` table; also captures the daily snapshot used for week-over-week deltas |
 | `tech_forecast_report.py` | Pure aggregation/report logic for the Technical Forecast page + Slack preread (bucket totals, key metrics, top deals w/ fiscal-quarter bucket + heuristic discussion question, weekly deltas, needs-Lead-SE list, missing-notes list) and the Actions page's SFDC Updates card (`build_sfdc_updates`/`draft_sfdc_note` — rule-based per-opportunity Salesforce note drafts) — no Flask dependency, reused by `app.py` and `tech_forecast_sync.py` |
 | `slack_sync.py` | Slack `search.messages` → `slack_notes` table |
 | `mcp_ingest.py` | CLI bridge — loads MCP-fetched JSON into the DB, no credentials needed |
