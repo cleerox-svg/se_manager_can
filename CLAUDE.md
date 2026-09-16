@@ -437,7 +437,7 @@ work on this project, delegate to the matching subagent below — never run
 the fetch → payload → ingest flow inline in the main thread.** This applies
 every session, unprompted; don't wait for the user to say "use a subagent."
 
-Four Claude Code custom agents live in `.claude/agents/` and are auto-loaded in every Claude Code session opened against this project directory:
+Six Claude Code custom agents live in `.claude/agents/` and are auto-loaded in every Claude Code session opened against this project directory:
 
 | Agent | File | Trigger |
 |---|---|---|
@@ -445,8 +445,10 @@ Four Claude Code custom agents live in `.claude/agents/` and are auto-loaded in 
 | `deals-sync` | `.claude/agents/deals-sync.md` | "sync deals", "refresh pipeline" |
 | `closed-deals-sync` | `.claude/agents/closed-deals-sync.md` | "sync closed deals", "refresh closed deals" |
 | `slack-sync` | `.claude/agents/slack-sync.md` | "sync Slack", "refresh Slack notes" |
+| `calendar-sync` | `.claude/agents/calendar-sync.md` | "sync calendar", "refresh Win Labs", "sync hiring interviews from calendar" |
+| `hiring-slack-sync` | `.claude/agents/hiring-slack-sync.md` | "sync hiring Slack", "refresh recruiting notes", "sync Cara's DMs" |
 
-Each agent handles the full MCP-assisted sync flow for its data type: confirm live tab name/gid, fetch data, write temp JSON payload, run `mcp_ingest.py` via `venv/Scripts/python.exe`, delete temp file, report result. Tab gid values are stable even when tab names change — agents always confirm the live name via `get_spreadsheet_info` before reading.
+Each agent handles the full MCP-assisted sync flow for its data type: confirm live tab name/gid (sheet kinds), fetch data, write temp JSON payload, run `mcp_ingest.py` via `venv/Scripts/python.exe`, delete temp file, report result. Tab gid values are stable even when tab names change — sheet agents always confirm the live name via `get_spreadsheet_info` before reading. `calendar-sync` and `hiring-slack-sync` have no credential-based path at all (unlike the sheet/Slack-notes syncs) — MCP-assisted is the only path, since there's no service account or Slack App configured for Calendar/recruiting-DM access either.
 
 Every agent must report back to the main thread with a **brief summary
 only** — synced/unchanged/deleted counts and any errors, never the raw
@@ -454,7 +456,7 @@ payload, full script stdout, or row-level data. If a subagent's reply starts
 looking like a data dump, that's a bug in the agent's instructions to fix,
 since it erases the whole point of delegating.
 
-The `/sync-se-hub` skill (`.claude/skills/sync-se-hub/SKILL.md`) is the slash-command entry point — it dispatches to these four agents in parallel (all four by default, or a subset if the user names specific kinds) rather than duplicating any sync logic itself.
+The `/sync-se-hub` skill (`.claude/skills/sync-se-hub/SKILL.md`) is the slash-command entry point — it dispatches to these six agents in parallel (all six by default, or a subset if the user names specific kinds) rather than duplicating any sync logic itself.
 
 ## Docs
 
@@ -482,7 +484,7 @@ scratchpad for one task, not a running log.
 | File | Purpose |
 |---|---|
 | `app.py` | Flask routes — JSON error handler (`LOG_LEVEL` env sets log level; exception detail goes to the log, never the browser), bounded/validated query params, 400/404 on the assign routes |
-| `db.py` | SQLite schema + thread-local connections; query indexes; `utc_now_iso()` (use it for any column whose schema default is UTC `datetime('now')` — `datetime.now()` writes local time and disagrees with the row beside it); `prune_snapshots()`; `schema_version`-gated one-time cleanups |
+| `db.py` | SQLite schema + thread-local connections; query indexes; `utc_now_iso()` (use it for any column whose schema default is UTC `datetime('now')` — `datetime.now()` writes local time and disagrees with the row beside it); `prune_snapshots()`; `schema_version`-gated one-time cleanups. Schema includes `calendar_events` (`UNIQUE(category, event_id)`) and `recruiting_notes` (`UNIQUE(message_ts, channel_id)`), both additive, no `schema_version` bump needed |
 | `constants.py` | Canonical SFDC/sheet literals: `STAGE_CLOSED_WON`, `PRESALES_TECH_WIN`, `FORECAST_RISK` — import, never re-type |
 | `attribution.py` | The single copy of the three-step SE precedence: `EFFECTIVE_SE_ID_SQL`, `LEAD_SE_ID_SQL`, `ATTRIBUTED_SE_ID_SQL`, `effective_se_id(row)` |
 | `sheet_parse.py` | Shared grouped-sheet parsing/loading for the three sheet syncs: `parse_amount`, `parse_date`, `strip_group_label`, `is_marker_cell`, `map_header`, `build_sheet_key`, `row_fingerprint`, `match_rekeyed_rows`, `guard_row_shrink`, `delete_keys`, `write_setting`. No db/Flask/gspread imports |
@@ -491,12 +493,14 @@ scratchpad for one task, not a running log.
 | `tech_forecast_sync.py` | Google Sheets "Claude This q and next" tab (Technical Forecast pipeline, flat layout as of 2026-09-15 — no Lead SE/Deal Forecast Status grouping, Presales Stage flat per-deal) → `tech_forecast_deals` table; also captures the daily snapshot used for week-over-week deltas |
 | `tech_forecast_report.py` | Pure aggregation/report logic for the Technical Forecast page + Slack preread (bucket totals, key metrics, top deals w/ fiscal-quarter bucket + heuristic discussion question, weekly deltas, needs-Lead-SE list, missing-notes list) and the Actions page's SFDC Updates card (`build_sfdc_updates`/`draft_sfdc_note` — rule-based per-opportunity Salesforce note drafts) — no Flask dependency, reused by `app.py` and `tech_forecast_sync.py` |
 | `slack_sync.py` | Slack `search.messages` → `slack_notes` table |
+| `calendar_sync.py` | MCP-assisted only — loads already-classified Google Calendar events (`win_lab` / `hiring_interview` / `customer_meeting`, classified by the `calendar-sync` agent) → `calendar_events` table |
+| `recruiting_sync.py` | MCP-assisted only — loads Slack DM search matches with recruiter Cara McArthy → `recruiting_notes` table (no `se_rep_id`, she isn't an SE report) |
 | `mcp_ingest.py` | CLI bridge — loads MCP-fetched JSON into the DB, no credentials needed |
 | `seed_arr_targets.py` | One-off: sets `se_reps.arr_target` by name (FY26 H2: Sean/Rishika $2.5M, Valentin/Nic $1.5M) |
 | `models.py` | Canonical model identifiers — `LITELLM_MODEL`, `BEDROCK_MODEL_ID`; the only place a model string is written |
 | `bedrock_agent.py` | AWS Bedrock Converse tool-use loop computing SE metrics into `agent_metrics` (proof-of-concept; not imported by `app.py` yet). Auth via the existing Okta SSO → IAM Identity Center federation, no new credentials |
 | `reviews.py` | LiteLLM-backed review drafting — the LLM context splits Closed-WON from Closed-LOST so lost deals stay visible as SE evidence but never reach the revenue line |
-| `top_items.py` | Top Items weekly summary — pure scaffold/persistence helpers, no Flask dependency (`DEFAULT_WINS_LIMIT = 25`) |
+| `top_items.py` | Top Items weekly summary — pure scaffold/persistence helpers, no Flask dependency (`DEFAULT_WINS_LIMIT = 25`). Auto-fills Technical Wins (`closed_deals`), Win Labs and Hiring/Customer Meetings (`calendar_events`, `recruiting_notes`) over the same 7-day lookback; Canadian Public Sector stays a manual placeholder |
 | `UI_STANDARDS.md` | Frontend design system — tokens with measured contrast, stage ramp, component patterns. The values live here; CLAUDE.md carries the rules |
 | `tests/` | pytest suite — run with `python3 -m pytest` (`venv/Scripts/python.exe -m pytest` on the user's machine) |
 | `frontend/` | React (Vite) frontend — `src/api.js` (fetch helpers), `src/App.jsx` (shell/router), `src/pages/`, `src/components/`, `src/style.css` (ported Okta dark theme). `npm run build` in `frontend/` produces `frontend/dist`, which is committed and served by Flask at `/` (see `app.py`'s `static_folder`) |

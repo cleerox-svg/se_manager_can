@@ -15,15 +15,25 @@ on [NaughtRFP](../rfp-responder)'s stack and Okta dark-theme UI.
   (drafts the manager's weekly Top Items summary — Hiring, Customer
   Meetings/Win Labs, Canadian Public Sector, and Other/Technical Wins —
   matching the format of the team's shared Top Items Google Doc). Top
-  Items' "Generate" button scaffolds a starter draft (Other/Technical Wins
-  auto-filled from `closed_deals` closed in the last 7 days; the other
-  three sections are editable placeholders), "Save" upserts it to
+  Items' "Generate" button scaffolds a starter draft: Other/Technical Wins
+  auto-fills from `closed_deals` closed in the last 7 days, and Win Labs /
+  Hiring / Customer Meetings auto-fill the same way from `calendar_events`
+  (classified by the `calendar-sync` agent into `win_lab` /
+  `hiring_interview` / `customer_meeting`) and `recruiting_notes` (Slack DMs
+  with recruiter Cara McArthy, via `hiring-slack-sync`) — Hiring combines
+  calendar interviews with Slack recruiting context, and Hiring/Customer
+  Meetings are flagged `_(heuristic — review before sending)_` since neither
+  is a high-confidence signal the way a "Win Lab" title or a closed-won
+  stage is. Canadian Public Sector remains the one editable placeholder.
+  "Save" upserts it to
   `top_items_entries` keyed by today's date, and "Copy to clipboard" pastes
   it straight into the shared doc. This is a manual weekly action, not an
   automated cron — the Flask app has no Calendar/Gmail/Slack
   service-account credentials, so full email/calendar/Slack alignment
   needs a live Claude Code session's MCP tools, same as the sheet/Slack
-  sync pattern above.
+  sync pattern above (Win Labs/Hiring/Customer Meetings have no
+  credential-based path at all — MCP-assisted via `calendar-sync` /
+  `hiring-slack-sync` is the only way these three sections fill in).
 - **Dashboard** — team-wide rollup sourced from Technical Forecast data, no
   individual SE names shown at top level. Three stat cards (closed deals,
   % closed won, % technical win, from `/api/closed-deals/summary`'s
@@ -240,6 +250,9 @@ copy-pasted per file:
   header check and the truncated-fetch guard. No db/Flask/gspread imports.
 - `top_items.py` — Top Items scaffold/persistence, mirroring
   `tech_forecast_report.py`'s pure-logic, no-Flask convention.
+- `calendar_sync.py` / `recruiting_sync.py` — MCP-assisted-only loaders (no
+  credential-based path) for `calendar_events` and `recruiting_notes`,
+  same upsert shape as `slack_sync.py`'s MCP-assisted entry point.
 
 ## Run it
 
@@ -404,6 +417,17 @@ Data gets in via one of two paths — see [SETUP.md](SETUP.md):
   FROM tech_forecast_snapshots ORDER BY snapshot_date DESC LIMIT 5;"
   ```
 - `slack_notes` — synced from Slack search per rep.
+- `calendar_events` — Google Calendar events, MCP-fetched and classified
+  by the `calendar-sync` agent into `win_lab` / `hiring_interview` /
+  `customer_meeting` before load, one row per (`category`, `event_id`).
+  Feeds the Top Items scaffold's Win Labs and Hiring/Customer Meetings
+  sections; the latter two categories are heuristic (title/description
+  keyword scan, or ≥1 non-`okta.com` attendee) and need human review.
+- `recruiting_notes` — Slack DM search matches with recruiter Cara
+  McArthy, MCP-fetched by the `hiring-slack-sync` agent, one row per
+  (`message_ts`, `channel_id`). No `se_rep_id` — she isn't an SE report.
+  Feeds the Top Items scaffold's Hiring section alongside
+  `calendar_events`' `hiring_interview` rows.
 - `reviews` — drafted/edited review content, one row per (rep, period),
   `status` of `draft` or `final` — settable from either the Team page's
   inline editor or the Person page's Review tab.
@@ -458,11 +482,11 @@ Things a sync now does that are worth knowing before running one:
 
 ## Sub-agents
 
-Four Claude Code custom agents live in `.claude/agents/` and auto-load in
+Six Claude Code custom agents live in `.claude/agents/` and auto-load in
 every Claude Code session opened against this project — "sync tech
-forecast", "sync deals", "sync closed deals", and "sync Slack" requests are
-handled by the matching function-specific agent rather than ad-hoc
-instructions each time:
+forecast", "sync deals", "sync closed deals", "sync Slack", "sync
+calendar", and "sync hiring Slack" requests are handled by the matching
+function-specific agent rather than ad-hoc instructions each time:
 
 | Agent | File | Trigger |
 |---|---|---|
@@ -470,19 +494,31 @@ instructions each time:
 | `deals-sync` | `.claude/agents/deals-sync.md` | "sync deals", "refresh pipeline" |
 | `closed-deals-sync` | `.claude/agents/closed-deals-sync.md` | "sync closed deals", "refresh closed deals" |
 | `slack-sync` | `.claude/agents/slack-sync.md` | "sync Slack", "refresh Slack notes" |
+| `calendar-sync` | `.claude/agents/calendar-sync.md` | "sync calendar", "refresh Win Labs" |
+| `hiring-slack-sync` | `.claude/agents/hiring-slack-sync.md` | "sync hiring Slack", "refresh recruiting notes" |
 
 Each agent runs the full MCP-assisted sync flow for its data type: confirm
-the live tab name via gid, fetch data, write a temp JSON payload, run
-`mcp_ingest.py` through `venv/Scripts/python.exe`, delete the temp file,
-report the result (the counts described under "Sync behavior" above).
+the live tab name via gid (sheet kinds), fetch data, write a temp JSON
+payload, run `mcp_ingest.py` through `venv/Scripts/python.exe`, delete the
+temp file, report the result (the counts described under "Sync behavior"
+above). `calendar-sync` and `hiring-slack-sync` have no credential-based
+alternative at all — MCP-assisted is the only path for Calendar/recruiting
+data on this project.
 
 The `/sync-se-hub` skill (`.claude/skills/sync-se-hub/SKILL.md`) is the
 recommended way to trigger a sync — `/sync-se-hub` or "sync everything" runs
-all four agents in parallel, or name a single kind ("sync deals", "sync
-closed deals", "sync tech forecast", "sync Slack") to run just that one.
-Asking Claude in prose without the slash command still works, since it
-dispatches to the same agents — the skill just standardizes the parallel
-fan-out and reporting.
+all six agents in parallel, or name a single kind ("sync deals", "sync
+closed deals", "sync tech forecast", "sync Slack", "sync calendar", "sync
+hiring Slack") to run just that one. Asking Claude in prose without the
+slash command still works, since it dispatches to the same agents — the
+skill just standardizes the parallel fan-out and reporting.
+
+For the weekly Top Items summary specifically, `/sync-top-items`
+(`.claude/skills/sync-top-items/SKILL.md`) is a narrower alternative that
+only dispatches `calendar-sync` and `hiring-slack-sync` — the two feeds
+`top_items.py`'s scaffold actually reads — skipping the four pipeline/Slack
+agents that don't matter for that summary. It's a stand-in until Gong/API
+access removes the need for a manual weekly sync at all.
 
 ## Conventions
 

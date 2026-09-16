@@ -348,6 +348,30 @@ class Database:
                     UNIQUE(se_rep_id, metric_key)
                 );
 
+                CREATE TABLE IF NOT EXISTS calendar_events (
+                    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                    category      TEXT NOT NULL,   -- 'win_lab' | 'hiring_interview' | 'customer_meeting'
+                    event_id      TEXT NOT NULL,
+                    title         TEXT,
+                    start_time    TEXT,
+                    end_time      TEXT,
+                    attendees_json TEXT,
+                    description   TEXT,
+                    fetched_at    TEXT DEFAULT (datetime('now')),
+                    UNIQUE(category, event_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS recruiting_notes (
+                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                    message_ts   TEXT,
+                    channel_id   TEXT,
+                    text         TEXT,
+                    permalink    TEXT,
+                    posted_at    TEXT,
+                    fetched_at   TEXT DEFAULT (datetime('now')),
+                    UNIQUE(message_ts, channel_id)
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_deals_se_rep ON deals(se_rep_id);
                 CREATE INDEX IF NOT EXISTS idx_deals_quarter ON deals(quarter);
                 CREATE INDEX IF NOT EXISTS idx_slack_notes_se_rep ON slack_notes(se_rep_id);
@@ -383,6 +407,12 @@ class Database:
                     ON tech_forecast_deals(presales_stage);
 
                 CREATE INDEX IF NOT EXISTS idx_agent_metrics_se_rep ON agent_metrics(se_rep_id);
+
+                CREATE INDEX IF NOT EXISTS idx_calendar_events_category_start
+                    ON calendar_events(category, start_time);
+
+                CREATE INDEX IF NOT EXISTS idx_recruiting_notes_posted
+                    ON recruiting_notes(posted_at);
             """)
             self._migrate(c)
 

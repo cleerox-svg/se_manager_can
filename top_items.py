@@ -20,6 +20,38 @@ def _row_to_dict(row):
     return dict(row) if row else None
 
 
+def _calendar_rows(db, category, limit):
+    with db.conn() as c:
+        return [
+            dict(r)
+            for r in c.execute(
+                "SELECT title, start_time FROM calendar_events "
+                "WHERE category = ? AND start_time >= date('now', '-7 days') "
+                "ORDER BY start_time LIMIT ?",
+                (category, limit),
+            ).fetchall()
+        ]
+
+
+def _recruiting_rows(db, limit):
+    with db.conn() as c:
+        return [
+            dict(r)
+            for r in c.execute(
+                "SELECT text, posted_at FROM recruiting_notes "
+                "WHERE posted_at >= date('now', '-7 days') "
+                "ORDER BY posted_at LIMIT ?",
+                (limit,),
+            ).fetchall()
+        ]
+
+
+def _event_bullet(row):
+    title = row.get("title") or "(untitled event)"
+    start = (row.get("start_time") or "")[:10]
+    return f"    - {title}" + (f" - {start}" if start else "")
+
+
 def build_scaffold(db, wins_limit=DEFAULT_WINS_LIMIT) -> str:
     with db.conn() as c:
         # `closed_deals` holds Won *and* Lost rows, so the Closed/Won filter is
@@ -51,15 +83,50 @@ def build_scaffold(db, wins_limit=DEFAULT_WINS_LIMIT) -> str:
     else:
         wins_block = "    - _(no technical wins/closed deals synced this week)_"
 
+    # Win Labs — high-confidence, same tier as Technical Wins: every invite
+    # has "Win Lab" literally in the title, classified by the calendar-sync
+    # agent before it ever reaches this table.
+    win_lab_rows = _calendar_rows(db, "win_lab", wins_limit)
+    if win_lab_rows:
+        win_lab_block = "\n".join(_event_bullet(r) for r in win_lab_rows)
+    else:
+        win_lab_block = "    - _(no Win Labs synced this week)_"
+
+    # Hiring — calendar interviews first, then Slack context from Cara
+    # McArthy's recruiting DMs. Both are heuristic (title/description
+    # keyword scan on the calendar side), reviewed by the manager before
+    # sending like every other section here.
+    hiring_interview_rows = _calendar_rows(db, "hiring_interview", wins_limit)
+    recruiting_rows = _recruiting_rows(db, wins_limit)
+    hiring_lines = [_event_bullet(r) for r in hiring_interview_rows]
+    hiring_lines += [f"    - {r.get('text')}" for r in recruiting_rows if r.get("text")]
+    if hiring_lines:
+        hiring_block = "\n".join(hiring_lines)
+    else:
+        hiring_block = "    - _(no interviews or recruiting notes synced this week)_"
+
+    # Customer Meetings — no consistent naming convention, so this is an
+    # external-attendee heuristic (>= 1 attendee outside okta.com) rather
+    # than a high-confidence signal. Explicit review-caveat header per the
+    # plan, distinct from Win Labs/Technical Wins.
+    customer_meeting_rows = _calendar_rows(db, "customer_meeting", wins_limit)
+    if customer_meeting_rows:
+        customer_meeting_block = "\n".join(_event_bullet(r) for r in customer_meeting_rows)
+    else:
+        customer_meeting_block = "    - _(no customer meetings synced this week)_"
+
     today = date.today()
     today_str = f"{today:%B} {today.day}, {today:%Y}"
 
     return f"""Date: {today_str}
 
 - Hiring
-  - _(add from calendar/email/Slack)_
+{hiring_block}
 - Customer Meetings/Win Labs
-  - _(add from calendar/email/Slack)_
+  - Win Labs
+{win_lab_block}
+  - Customer Meetings _(heuristic — review before sending)_
+{customer_meeting_block}
 - Canadian Public Sector
   - _(add from calendar/email/Slack)_
 - Other

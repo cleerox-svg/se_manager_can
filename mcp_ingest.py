@@ -38,6 +38,35 @@ Usage:
             ...
         ]}
 
+    py mcp_ingest.py calendar_events <json_file>
+        {"events": [
+            {"category": "win_lab", "event_id": "abc123", "title": "Win Lab: Northwind",
+             "start_time": "2026-09-15T15:00:00Z", "end_time": "2026-09-15T16:00:00Z",
+             "attendees": ["someone@okta.com"], "description": "..."},
+            {"category": "hiring_interview", "event_id": "def456",
+             "title": "Interview: SE candidate", "start_time": "2026-09-16T18:00:00Z",
+             "end_time": "2026-09-16T19:00:00Z", "attendees": [], "description": ""},
+            {"category": "customer_meeting", "event_id": "ghi789",
+             "title": "Acme Corp check-in", "start_time": "2026-09-17T14:00:00Z",
+             "end_time": "2026-09-17T15:00:00Z", "attendees": ["buyer@acme.com"],
+             "description": "..."},
+            ...
+        ]}
+        (each event already classified by the `calendar-sync` agent's
+        title/attendee heuristics before this file is written — `category`
+        is one of 'win_lab' | 'hiring_interview' | 'customer_meeting'.
+        `attendees` is optional shorthand for `attendees_json`; either is
+        accepted)
+
+    py mcp_ingest.py recruiting_notes <json_file>
+        {"matches": [
+            {"ts": "1712345678.000200", "channel_id": "D0RECRUIT",
+             "text": "...", "permalink": "https://...", "posted_at": "2026-08-01T10:00:00"},
+            ...
+        ]}
+        (Slack DM search matches with Cara McArthy, no `se_rep_id` — she
+        isn't an SE report)
+
 Add --allow-shrink to a sheet kind to waive the truncated-fetch guard, which
 otherwise aborts a sync whose payload is far smaller than what's stored (the
 usual cause is a read range or pagination cursor cutting the grid short, not a
@@ -51,13 +80,15 @@ import os
 import sys
 
 from db import Database
+import calendar_sync
 import closed_deals_sync
+import recruiting_sync
 import sheets_sync
 import slack_sync
 import tech_forecast_sync
 
 _SHEET_KINDS = ("deals", "closed_deals", "tech_forecast")
-_KINDS = _SHEET_KINDS + ("slack",)
+_KINDS = _SHEET_KINDS + ("slack", "calendar_events", "recruiting_notes")
 
 
 def _fail(message: str):
@@ -88,13 +119,37 @@ def _validate(kind: str, payload):
             _fail("'values' is empty; nothing to sync (a truncated or wrong-range fetch?).")
         return
 
-    if not isinstance(payload.get("se_rep_id"), int):
-        _fail(
-            "slack payload needs an integer 'se_rep_id' — resolve it from se_reps "
-            "(GET /api/reps) by slack_user_id or name, don't guess it."
-        )
-    if not isinstance(payload.get("matches"), list):
-        _fail("slack payload needs a 'matches' list (Slack search matches).")
+    if kind == "slack":
+        if not isinstance(payload.get("se_rep_id"), int):
+            _fail(
+                "slack payload needs an integer 'se_rep_id' — resolve it from se_reps "
+                "(GET /api/reps) by slack_user_id or name, don't guess it."
+            )
+        if not isinstance(payload.get("matches"), list):
+            _fail("slack payload needs a 'matches' list (Slack search matches).")
+        return
+
+    if kind == "calendar_events":
+        events = payload.get("events")
+        if not isinstance(events, list):
+            _fail("calendar_events payload needs an 'events' list.")
+        for e in events:
+            if not isinstance(e, dict):
+                _fail("calendar_events payload's 'events' entries must be objects.")
+            if e.get("category") not in ("win_lab", "hiring_interview", "customer_meeting"):
+                _fail(
+                    "each calendar_events entry needs a 'category' of "
+                    "'win_lab', 'hiring_interview', or 'customer_meeting' "
+                    f"(got {e.get('category')!r})."
+                )
+            if not e.get("event_id"):
+                _fail("each calendar_events entry needs an 'event_id'.")
+        return
+
+    if kind == "recruiting_notes":
+        if not isinstance(payload.get("matches"), list):
+            _fail("recruiting_notes payload needs a 'matches' list (Slack search matches).")
+        return
 
 
 def main():
@@ -124,8 +179,12 @@ def main():
         result = closed_deals_sync.sync_closed_deals_from_values(db, payload["values"], allow_shrink)
     elif kind == "tech_forecast":
         result = tech_forecast_sync.sync_tech_forecast_from_values(db, payload["values"], allow_shrink)
-    else:
+    elif kind == "slack":
         result = slack_sync.sync_slack_notes_from_matches(db, payload["se_rep_id"], payload["matches"])
+    elif kind == "calendar_events":
+        result = calendar_sync.sync_calendar_events_from_values(db, payload["events"])
+    else:
+        result = recruiting_sync.sync_recruiting_notes_from_matches(db, payload["matches"])
 
     print(json.dumps(result))
 
