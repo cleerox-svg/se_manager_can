@@ -430,7 +430,9 @@ unpushed commits or wait for the user to ask. This supersedes the prior
 "no GitHub by default" rule (which had scoped push authorization to the
 React migration only); that scoping no longer applies.
 
-## Sub-agents
+## Sub-agents & delegation
+
+### Sync, upload & bulk-file work
 
 **Standing rule, not a reminder: for any data upload, sync, or bulk file
 work on this project, delegate to the matching subagent below — never run
@@ -457,6 +459,33 @@ looking like a data dump, that's a bug in the agent's instructions to fix,
 since it erases the whole point of delegating.
 
 The `/sync-se-hub` skill (`.claude/skills/sync-se-hub/SKILL.md`) is the slash-command entry point — it dispatches to these six agents in parallel (all six by default, or a subset if the user names specific kinds) rather than duplicating any sync logic itself.
+
+### General project work (everything else)
+
+**Standing rule, not a reminder: for any non-trivial project work that
+isn't sync/upload/bulk-file work — feature implementation, bug fixes,
+refactors, UI/frontend changes, research/investigation, doc updates —
+delegate to a subagent by default, unprompted, every session.** Don't do
+this work inline in the main thread; that's what burns context and
+triggers premature compaction.
+
+**Delegate to:** the built-in `general-purpose` Agent type. No custom
+agent file is needed for this — `general-purpose` already has full tool
+access, and when dispatched against this project directory it
+automatically loads this same CLAUDE.md, so it inherits the
+"brief summary only" reporting rule and the `progress.md` protocol for
+free.
+
+**Exception:** trivial actions (a quick spot-check, a single-line read,
+confirming a subagent's claimed output) can stay in the main thread —
+that's what direct tool use is for, not doing the actual work.
+
+**Reporting:** same brief-summary-only bar as the sync rule above — report
+pass/fail and what changed, never a raw diff or full command output dump.
+
+**Multi-step tasks:** populate `progress.md` (see "progress.md — surviving
+context compaction" below) as work progresses, not just at the end — this
+is what lets delegated work survive compaction cleanly.
 
 ## Docs
 
