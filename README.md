@@ -278,6 +278,16 @@ sheet parsing and the fiscal-quarter math among them. Run it after touching
 `sheet_parse.py`, the three `*_sync.py` modules, `tech_forecast_report.py`,
 `constants.py` or `attribution.py`.
 
+It also covers the frontend palette: `tests/test_ui_contrast.py` parses
+`frontend/src/style.css` and fails if a colour token drops below WCAG AA, if a
+status hue is declared for only one theme, if light mode's surfaces collapse
+onto one white, or if the presales-stage ramp stops reading in order. Those are
+failures you can't see in whichever theme you happen to have open — a shared
+amber sat at 2.03:1 on white for a while, carrying the "No update this week"
+flag — so they're checked rather than remembered. The palette itself, with the
+measured ratios and the patterns built on it, is in
+[UI_STANDARDS.md](UI_STANDARDS.md); run the suite after editing `style.css`.
+
 Data gets in via one of two paths — see [SETUP.md](SETUP.md):
 - **Ask Claude to sync** (no setup) — Claude uses its own Google Sheets /
   Slack MCP access and loads the result with `mcp_ingest.py`.

@@ -396,53 +396,35 @@ this note is meant to be pasted straight into Salesforce.
 
 ## Frontend theming & charts
 
-`frontend/src/style.css` defines the palette as tokens on `:root` (dark) and
-overrides them under `body.light-mode`. Two rules matter more than the rest,
-because breaking either is invisible in the theme you happen to be looking at:
+**`UI_STANDARDS.md` is the reference** — tokens, measured contrast ratios, the
+stage ramp, component patterns. It holds the values; this section holds only
+the rules, and no hex code appears in both. A value written down twice drifts,
+which is the same lesson as the stage strings and the attribution query above.
 
-- **Semantic colours are per-theme, not shared.** `--green`/`--amber`/`--red`/
-  `--purple`/`--teal` are declared in BOTH blocks with different values. They
-  used to be declared once, stepped for navy, and inherited by light mode —
-  where amber measured 2.03:1 against white while carrying the "No update this
-  week" flag. Adding a status colour means adding it twice. Same for
-  `--text-muted`. Chip fills come from the matching `--*-dim` token rather than
-  a hardcoded `rgba()`, so a badge background follows its own text colour.
-- **Light mode's surfaces must stay distinct.** `--bg-app`, `--bg-card`,
-  `--bg-card-hover`, `--bg-input`, `--bg-tag` were all `#FFFFFF`, which is not
-  just flat: hover feedback became invisible (hover colour == base colour) and
-  the progress-bar track behind every ARR bar disappeared, so a rep at 0%
-  rendered as empty space. Don't collapse them back to one white.
+The standard is enforced by `tests/test_ui_contrast.py`, which parses
+`style.css` and fails on a violation — so these are checked, not remembered.
 
-Charts (`pages/Dashboard.jsx`, Recharts):
+Two rules matter more than the rest, because breaking either is invisible in
+whichever theme you happen to have open:
 
-- Presales stage is **ordinal**, so the stacked fills step along one hue
-  (`--stage-1`..`--stage-4`) rather than taking unrelated categorical colours —
-  the stack reads in stage order without consulting the legend. `Untagged`
-  means "no stage recorded" and takes `--stage-none`, a recessive neutral: as a
-  saturated grey it was the heaviest mark on the dashboard while carrying the
-  least meaning. An automated palette check rejected the old five-hue set on
-  three counts (amber outside the lightness band, the grey below the chroma
-  floor, three hues under 3:1 on white).
-- **Text never wears the series colour.** Legend labels go through
-  `legendLabel` and tooltip rows through a swatch + `--text-primary`, because
-  the pale end of a ramp is a fill colour and not a legible text colour —
-  Recharts' default made "Early Tech" nearly invisible on white.
-- Stacked bars carry a 2px `--bg-card` stroke so adjacent segments separate now
-  that they're neighbouring steps of one hue.
+- **Status hues are per-theme.** `--green`/`--amber`/`--red`/`--purple`/
+  `--teal` (and `--text-muted`) are declared in BOTH `:root` and
+  `body.light-mode`, with different values. They used to be declared once,
+  stepped for navy, and inherited by light mode — where amber sat at 2.03:1
+  while carrying the "No update this week" flag. Adding a status colour means
+  adding it twice, and adding it to the test's `_SEMANTIC` list.
+- **Light mode's surfaces stay distinct.** `--bg-app`/`--bg-card`/
+  `--bg-card-hover`/`--bg-input`/`--bg-tag` were all `#FFFFFF`, which didn't
+  just look flat: hover feedback stopped working (hover colour == base colour)
+  and the progress-bar track vanished, so a rep at 0% rendered as empty space.
 
-Tables and flags:
-
-- Money columns are marked `numeric: true` in the column defs, which applies
-  `.col-num` (right-aligned + `tabular-nums`); without both, two amounts in a
-  column can't be compared by eye.
-- Deal flags carry a severity: an unowned deal is `badge-red`, stale notes
-  `badge-amber`, a missing strategy note `badge-muted`. They were all the same
-  amber, so the row needing action on Monday looked like the row that was
-  merely untidy. `staleLabel` reads `notes_last_changed_at` to say "Stale 3
-  weeks" rather than the undated wording. Note `notes_stale` is a SQLite
-  integer — guard it with `!!` in JSX or React renders a literal `0`.
-- Fields that are blank until the sheet carries them (`AE:`, Billing
-  State/Province) render nothing rather than a `-` on every row.
+The rest, in brief — rationale and values in `UI_STANDARDS.md`: presales stage
+is ordinal so its chart fills step along one hue with "Untagged" as a recessive
+neutral; legend and tooltip text take theme ink, never the series colour (the
+pale end of a ramp is a fill colour, not a legible text colour); money columns
+are `numeric: true`; deal flags carry a severity rather than three identical
+ambers; and `notes_stale` is a SQLite integer, so guard it with `!!` in JSX or
+React renders a literal `0`.
 
 ## Git workflow
 
@@ -519,6 +501,7 @@ scratchpad for one task, not a running log.
 | `bedrock_agent.py` | AWS Bedrock Converse tool-use loop computing SE metrics into `agent_metrics` (proof-of-concept; not imported by `app.py` yet). Auth via the existing Okta SSO → IAM Identity Center federation, no new credentials |
 | `reviews.py` | LiteLLM-backed review drafting — the LLM context splits Closed-WON from Closed-LOST so lost deals stay visible as SE evidence but never reach the revenue line |
 | `top_items.py` | Top Items weekly summary — pure scaffold/persistence helpers, no Flask dependency (`DEFAULT_WINS_LIMIT = 25`) |
+| `UI_STANDARDS.md` | Frontend design system — tokens with measured contrast, stage ramp, component patterns. The values live here; CLAUDE.md carries the rules |
 | `tests/` | pytest suite — run with `python3 -m pytest` (`venv/Scripts/python.exe -m pytest` on the user's machine) |
 | `frontend/` | React (Vite) frontend — `src/api.js` (fetch helpers), `src/App.jsx` (shell/router), `src/pages/`, `src/components/`, `src/style.css` (ported Okta dark theme). `npm run build` in `frontend/` produces `frontend/dist`, which is committed and served by Flask at `/` (see `app.py`'s `static_folder`) |
 
