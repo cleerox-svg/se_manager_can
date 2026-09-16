@@ -11,6 +11,7 @@ export default function TechForecast() {
   const [data, setData] = useState(null);
   const [reps, setReps] = useState([]);
   const [winRateSummary, setWinRateSummary] = useState(null);
+  const [directReportOnly, setDirectReportOnly] = useState(true);
   const pageRef = useRef(null);
 
   function setAllSections(open) {
@@ -20,24 +21,31 @@ export default function TechForecast() {
   }
 
   const refresh = useCallback(() => {
-    return getTechForecast().then((res) => setData(res));
-  }, []);
+    return getTechForecast(directReportOnly).then((res) => setData(res));
+  }, [directReportOnly]);
 
   useEffect(() => {
     let active = true;
-    getTechForecast().then((res) => {
-      if (active) setData(res);
-    });
     getReps().then((res) => {
       if (active) setReps(res);
-    });
-    getClosedDealsSummary().then((res) => {
-      if (active) setWinRateSummary(res);
     });
     return () => {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    getTechForecast(directReportOnly).then((res) => {
+      if (active) setData(res);
+    });
+    getClosedDealsSummary(directReportOnly).then((res) => {
+      if (active) setWinRateSummary(res);
+    });
+    return () => {
+      active = false;
+    };
+  }, [directReportOnly]);
 
   if (!data) {
     return (
@@ -75,7 +83,11 @@ export default function TechForecast() {
       <div ref={pageRef}>
         <MacroView deals={data.deals} data={data} />
 
-        <WinRateClosedDeals winRateSummary={winRateSummary} />
+        <WinRateClosedDeals
+          winRateSummary={winRateSummary}
+          directReportOnly={directReportOnly}
+          onToggleDirectReport={() => setDirectReportOnly((v) => !v)}
+        />
 
         <LookBack wins={data.recent_wins} />
 

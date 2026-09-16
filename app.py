@@ -192,6 +192,22 @@ def _coerce_active(value):
     abort(400, description="active must be a boolean or 0/1")
 
 
+def _coerce_direct_report(value):
+    """Same semantics as `_coerce_active`: must land as a real 0/1, not a
+    string SQLite would happily store and then read back as truthy."""
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return 1 if value else 0
+    if isinstance(value, str):
+        v = value.strip().lower()
+        if v in ("1", "true", "yes"):
+            return 1
+        if v in ("0", "false", "no", ""):
+            return 0
+    abort(400, description="direct_report must be a boolean or 0/1")
+
+
 def _coerce_arr_target(value):
     """REAL column, but SQLite's type affinity accepts a string verbatim — a
     stray "2.5M" would then break every ARR-goal comparison silently."""
@@ -215,6 +231,7 @@ def _coerce_arr_target(value):
 
 _REP_FIELD_COERCERS = {
     "active": _coerce_active,
+    "direct_report": _coerce_direct_report,
     "arr_target": _coerce_arr_target,
 }
 
@@ -303,6 +320,25 @@ def list_deals():
 # ── Technical Forecast ──────────────────────────────────────────────────
 @app.route("/api/tech-forecast")
 def tech_forecast():
+    # Reuses _coerce_active's parsing rather than a duplicate ad hoc truthy
+    # check, mirroring closed_deals_summary(). Absent param must behave
+    # exactly like today's unfiltered "All reps" view, so a missing arg is
+    # folded to "0" before coercion rather than passed through.
+    direct_reports_only = bool(_coerce_active(request.args.get("direct_report") or "0"))
+    # Filters on the *effective* SE (attribution.py's three-step precedence),
+    # not raw se_rep_id — a query site that filtered on se_rep_id directly
+    # zeroed ARR for every deal attributed via manual override or Lead SE
+    # name match (fixed 2026-09-11). Reuse EFFECTIVE_SE_ID_SQL rather than
+    # re-implementing the COALESCE here.
+    deals_direct_report_where_sql = (
+        f"WHERE {EFFECTIVE_SE_ID_SQL} IN (SELECT id FROM se_reps WHERE direct_report = 1)"
+        if direct_reports_only else ""
+    )
+    closed_direct_report_filter_sql = (
+        " AND se_rep_id IN (SELECT id FROM se_reps WHERE direct_report = 1)"
+        if direct_reports_only else ""
+    )
+
     with db.conn() as c:
         # SE-attribution precedence: (1) assigned_se_rep_id — Claude Leroux's manual
         # override, always wins; (2) the sheet's own Lead Sales Engineer column,
@@ -316,6 +352,7 @@ def tech_forecast():
                 {LEAD_SE_ID_SQL} AS lead_se_rep_id,
                 {ATTRIBUTED_SE_ID_SQL} AS attributed_se_id
             FROM tech_forecast_deals tf
+            {deals_direct_report_where_sql}
             ORDER BY tf.amount DESC
         """).fetchall()
         # tech_win = 1 alone, deliberately: a technical win can precede a
@@ -323,8 +360,10 @@ def tech_forecast():
         # sales_stage rides along so each row can be labelled won/lost below
         # instead of the UI assuming "not Closed/Won" means "still open".
         closed_wins = c.execute(
-            "SELECT * FROM closed_deals WHERE tech_win = 1 ORDER BY amount DESC"
+            f"SELECT * FROM closed_deals WHERE tech_win = 1{closed_direct_report_filter_sql} "
+            "ORDER BY amount DESC"
         ).fetchall()
+        # Unfiltered on purpose — this is just a name-lookup dict, not a data source.
         reps_by_id = {r["id"]: r["name"] for r in c.execute("SELECT id, name FROM se_reps")}
 
     deals = []
@@ -551,33 +590,45 @@ def closed_deals_summary():
         report.fiscal_quarter_sort_key(current_fq_label)
     )
 
+    # Reuses _coerce_active's parsing rather than a duplicate ad hoc truthy
+    # check — same "1"/"true"/"yes" vs "0"/"false"/"no"/"" semantics. Absent
+    # param must behave exactly like today's unfiltered "All reps" view, so a
+    # missing arg is folded to "0" before coercion rather than passed through.
+    direct_reports_only = bool(_coerce_active(request.args.get("direct_report") or "0"))
+    direct_report_filter_sql = (
+        " AND se_rep_id IN (SELECT id FROM se_reps WHERE direct_report = 1)"
+        if direct_reports_only else ""
+    )
+    rep_direct_report_filter_sql = " AND r.direct_report = 1" if direct_reports_only else ""
+
     with db.conn() as c:
-        team_row = c.execute("""
+        team_row = c.execute(f"""
             SELECT
                 COUNT(*) AS total,
                 SUM(CASE WHEN sales_stage = ? THEN 1 ELSE 0 END) AS closed_won,
                 SUM(CASE WHEN tech_win = 1 THEN 1 ELSE 0 END) AS tech_win
             FROM closed_deals
-            WHERE se_rep_id IS NOT NULL
+            WHERE se_rep_id IS NOT NULL{direct_report_filter_sql}
         """, (STAGE_CLOSED_WON,)).fetchone()
 
-        team_current_quarter_row = c.execute("""
+        team_current_quarter_row = c.execute(f"""
             SELECT
                 COUNT(*) AS total,
                 SUM(CASE WHEN sales_stage = ? THEN 1 ELSE 0 END) AS closed_won,
                 SUM(CASE WHEN tech_win = 1 THEN 1 ELSE 0 END) AS tech_win
             FROM closed_deals
             WHERE se_rep_id IS NOT NULL
-                AND close_date >= ? AND close_date < ?
+                AND close_date >= ? AND close_date < ?{direct_report_filter_sql}
         """, (STAGE_CLOSED_WON, current_fq_start, current_fq_end)).fetchone()
 
-        rep_rows = c.execute("""
+        rep_rows = c.execute(f"""
             SELECT r.id AS rep_id, r.name AS rep_name,
                 COUNT(cd.id) AS total,
                 SUM(CASE WHEN cd.sales_stage = ? THEN 1 ELSE 0 END) AS closed_won,
                 SUM(CASE WHEN cd.tech_win = 1 THEN 1 ELSE 0 END) AS tech_win
             FROM se_reps r
             JOIN closed_deals cd ON cd.se_rep_id = r.id
+            WHERE 1=1{rep_direct_report_filter_sql}
             GROUP BY r.id, r.name
             ORDER BY r.name
         """, (STAGE_CLOSED_WON,)).fetchall()

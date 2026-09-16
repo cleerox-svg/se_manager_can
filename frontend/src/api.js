@@ -55,8 +55,8 @@ export function syncSlack() {
   return API.post('/api/sync/slack');
 }
 
-export function getTechForecast() {
-  return API.get('/api/tech-forecast');
+export function getTechForecast(directReportOnly) {
+  return API.get(`/api/tech-forecast${directReportOnly ? '?direct_report=1' : ''}`);
 }
 
 export function generatePrereadDraft() {
@@ -80,8 +80,8 @@ export function assignBackupSe(sheetKey, seRepId, note) {
   });
 }
 
-export function getClosedDealsSummary() {
-  return API.get('/api/closed-deals/summary');
+export function getClosedDealsSummary(directReportOnly) {
+  return API.get(`/api/closed-deals/summary${directReportOnly ? '?direct_report=1' : ''}`);
 }
 
 export function getDashboardArrTrend() {
