@@ -170,7 +170,8 @@ def main():
 
     _validate(kind, payload)
 
-    db = Database(os.environ.get("DATABASE_PATH", "se_manager_hub.db"))
+    default_db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "se_manager_hub.db")
+    db = Database(os.environ.get("DATABASE_PATH", default_db_path))
     db.init()
 
     if kind == "deals":
