@@ -349,15 +349,17 @@ Data gets in via one of two paths — see [SETUP.md](SETUP.md):
   closed within the current Okta fiscal quarter (`team_current_quarter`,
   labeled with that quarter, e.g. "FY26-Q3") — added since the all-time
   figure alone reads as "recent" performance when it actually spans the
-  whole season. Per-rep breakdown stays all-time only. As of the 2026-09-15
-  reformat, the tab dropped its "Team Member Name" column (and the old
+  whole season. Per-rep breakdown stays all-time only. The 2026-09-15
+  reformat briefly dropped the tab's "Team Member Name" column (and the old
   three-level Team Member Name > Team Role > Region grouping with it) down
-  to a flat single-manager export — there is no per-deal SE signal left in
-  this tab at all, so every row now attributes as `rep_name = "Unassigned"`
-  (`se_rep_id = NULL`); the per-rep breakdown above is now empty/uninformative
-  for this table until a per-deal SE column returns to the sheet. Closed-won
-  vs. closed-lost detection is unaffected, since it keys on `sales_stage`,
-  not `rep_name`.
+  to a flat single-manager export, leaving no per-deal SE signal for one
+  day. As of 2026-09-16 the sheet carries a flat "Lead Sales Engineer"
+  column instead, which is what `rep_name` is sourced from now — "Manager"
+  is constant (the SE Manager) but "Opportunity Owner" varies per deal since
+  it's the Account Executive, not the SE, so neither feeds `rep_name`. Rows
+  without a "Lead Sales Engineer" value still fall back to
+  `rep_name = "Unassigned"` (`se_rep_id = NULL`). Closed-won vs. closed-lost
+  detection is unaffected, since it keys on `sales_stage`, not `rep_name`.
 - `tech_forecast_deals` — synced from the Team Tracking Sheet's Technical
   Forecast tab, one row per open deal in the technical-win pipeline. As of
   the 2026-09-15 reformat, the sheet dropped "Lead Sales Engineer" and

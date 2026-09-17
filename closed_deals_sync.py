@@ -4,14 +4,12 @@
 
 Flat layout, one row per closed opportunity — no grouping/hierarchy. As of
 2026-09-15 the sheet dropped the old three-level Team Member Name > Team
-Role > Region grouping, and the "Team Member Name" column is gone entirely.
-What's left is flat "Manager" (constant "Claude Leroux" on every row) and
-"Opportunity Owner" (constant "Matt Hatherley", the account owner) — neither
-varies per deal, so neither is a usable per-deal presales-SE signal, and
-there is no column left in this tab to source `rep_name` from. Every row
-now attributes as "Unassigned" (`se_rep_id = NULL`) via the same fallback
-`load_rows` already used for any row with no SE tag; this has no effect on
-closed-won/closed-lost detection, which keys on Stage, not rep_name.
+Role > Region grouping, and the "Team Member Name" column was gone entirely
+for one day. As of 2026-09-16 the sheet carries a flat "Lead Sales Engineer"
+column instead, which is what `rep_name` is sourced from now. "Manager" is
+constant (the SE Manager, Claude Leroux) but "Opportunity Owner" varies per
+deal — it's the Account Executive, not the SE. Neither is SE identity and
+neither feeds `rep_name`; "Lead Sales Engineer" is the only column that does.
 
 Stage carries both "10 - Closed/Won" and a Closed/Lost value — the tab is
 scoped to closed deals, not won deals only. Presales Stage is a flat
@@ -36,6 +34,7 @@ _HEADER_MAP = {
     "Presales Stage": "presales_stage",
     "Opportunity ID": "opportunity_id",
     "Stage": "sales_stage",
+    "Lead Sales Engineer": "rep_name",
 }
 
 # Headers we cannot do without: losing any one of them either empties the sync
@@ -82,7 +81,7 @@ def _normalize_values(values: list[list[str]]) -> list[dict]:
     return rows
 
 
-_FINGERPRINT_FIELDS = ("opportunity_name", "opportunity_id", "sales_stage", "tech_win")
+_FINGERPRINT_FIELDS = ("opportunity_name", "opportunity_id", "sales_stage", "tech_win", "rep_name")
 
 
 def _row_fingerprint(row: dict, close_date, amount) -> str:
