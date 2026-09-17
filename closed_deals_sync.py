@@ -1,6 +1,6 @@
-"""Pulls the Team Tracking Sheet's "Canada SE Closed This Fiscal Year" tab
-(closed deals export, both Closed/Won and Closed/Lost) into the local
-`closed_deals` table.
+"""Pulls the standalone "Tech wins and losses" sheet's tab (closed deals
+export, both Closed/Won and Closed/Lost) into the local `closed_deals`
+table.
 
 Flat layout, one row per closed opportunity — no grouping/hierarchy. As of
 2026-09-15 the sheet dropped the old three-level Team Member Name > Team

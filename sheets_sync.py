@@ -169,15 +169,26 @@ def fetch_rows(service_account_json_path: str, sheet_id: str, worksheet_index: i
 # key changes, which is what `sheet_parse.match_rekeyed_rows` guards against.
 _MANUAL_OVERRIDE_COLUMNS = ("backup_se_rep_id", "backup_note", "backup_assigned_at")
 
+_FINGERPRINT_FIELDS = (
+    "lead_se", "stage", "opportunity_name", "opportunity_id", "geo_seg",
+    "se_manager_notes", "presales_notes", "billing_state", "poc", "se_needed",
+    "record_type", "type",
+)
+
+
+def _row_fingerprint(row: dict, close_date, amount) -> str:
+    return sheet_parse.row_fingerprint(row, _FINGERPRINT_FIELDS, (close_date, amount))
+
 
 def load_rows(db, rows: list[dict], allow_shrink: bool = False) -> dict:
-    """Upsert already-normalized rows into the `deals` table. Returns the
-    documented synced/unchanged/deleted contract (this tab has no per-row
-    fingerprint, so every payload row counts as synced and `unchanged` is
-    always 0)."""
+    """Upsert already-normalized rows into the `deals` table, skipping any row
+    whose fingerprint matches what's already stored so an unchanged row is
+    never rewritten."""
     synced_at = utc_now_iso()
     unparsed_amounts = 0
     carried_count = 0
+    changed_count = 0
+    unchanged_count = 0
     payload_rows: dict[str, dict] = {}
 
     # One connection block for the whole sync: reads, writes, the delete and
@@ -196,7 +207,7 @@ def load_rows(db, rows: list[dict], allow_shrink: bool = False) -> dict:
 
         existing_rows: dict[str, dict] = {}
         for r in c.execute(
-            "SELECT sheet_key, opportunity_name, "
+            "SELECT sheet_key, opportunity_name, row_fingerprint, "
             + ("opportunity_id, " if has_opportunity_id else "'' AS opportunity_id, ")
             + ", ".join(_MANUAL_OVERRIDE_COLUMNS)
             + " FROM deals"
@@ -239,12 +250,20 @@ def load_rows(db, rows: list[dict], allow_shrink: bool = False) -> dict:
                 "opportunity_name": row.get("opportunity_name"),
             }
 
+            fingerprint_row = dict(row, lead_se=lead_se)
+            new_fingerprint = _row_fingerprint(fingerprint_row, close_date, amount)
+
+            if existing_rows.get(sheet_key, {}).get("row_fingerprint") == new_fingerprint:
+                unchanged_count += 1
+                continue
+
+            changed_count += 1
             c.execute("""
                 INSERT INTO deals (
                     sheet_key, lead_se, se_rep_id, stage, opportunity_name, geo_seg,
                     close_date, amount, se_manager_notes, presales_notes, billing_state,
-                    poc, se_needed, record_type, type, quarter, last_synced_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    poc, se_needed, record_type, type, quarter, row_fingerprint, last_synced_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(sheet_key) DO UPDATE SET
                     lead_se = excluded.lead_se, se_rep_id = excluded.se_rep_id,
                     -- Updatable now that the key can be the opportunity ID:
@@ -257,13 +276,15 @@ def load_rows(db, rows: list[dict], allow_shrink: bool = False) -> dict:
                     billing_state = excluded.billing_state, poc = excluded.poc,
                     se_needed = excluded.se_needed, record_type = excluded.record_type,
                     type = excluded.type, quarter = excluded.quarter,
+                    row_fingerprint = excluded.row_fingerprint,
                     last_synced_at = excluded.last_synced_at
             """, (
                 sheet_key, lead_se, se_rep_id, row.get("stage"), row.get("opportunity_name"),
                 row.get("geo_seg"), close_date, amount,
                 row.get("se_manager_notes"), row.get("presales_notes"), row.get("billing_state"),
                 _parse_bool(row.get("poc", "")), _parse_bool(row.get("se_needed", "")),
-                row.get("record_type"), row.get("type"), _quarter(close_date), synced_at,
+                row.get("record_type"), row.get("type"), _quarter(close_date), new_fingerprint,
+                synced_at,
             ))
 
             # Written separately rather than inlined into the INSERT above:
@@ -303,8 +324,8 @@ def load_rows(db, rows: list[dict], allow_shrink: bool = False) -> dict:
         sheet_parse.write_setting(c, "deals_last_synced_at", synced_at, synced_at)
 
     return {
-        "synced": len(payload_rows),
-        "unchanged": 0,
+        "synced": changed_count,
+        "unchanged": unchanged_count,
         "deleted": deleted_count,
         "overrides_carried": carried_count,
         "unparsed_amounts": unparsed_amounts,

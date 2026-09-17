@@ -9,8 +9,8 @@ There is no Google service account configured for this project — always use th
 
 Steps:
 
-1. Call `mcp__google_sheets__google_sheets-get_spreadsheet_info` to confirm the current tab name for **gid `0`** — this is the stable identifier for the open pipeline tab (currently "Lead SE Pipeline SFDC", but don't trust that name — always confirm live via gid, it gets renamed from time to time).
-2. Call `mcp__google_sheets__google_sheets-read_sheet_values` with range `TabName!A1:Z1000` (substituting the confirmed tab name) to fetch the full raw grid.
+1. Call `mcp__google__google_workspace-get_spreadsheet_info` to confirm the current tab name for **gid `0`** — this is the stable identifier for the open pipeline tab (currently "Lead SE Pipeline SFDC", but don't trust that name — always confirm live via gid, it gets renamed from time to time).
+2. Call `mcp__google__google_workspace-read_sheet_values` with range `TabName!A1:Z1000` (substituting the confirmed tab name) to fetch the full raw grid.
 3. Write the payload to `C:\Users\ClaudeLeroux\se-manager-hub\_mcp_payload_deals.json` in this exact shape:
    ```json
    {"values": [["col1", "col2", ...], ["row1val1", "row1val2", ...], ...]}
@@ -27,7 +27,7 @@ Steps:
 
 Notes:
 
-- This tab has no per-row fingerprint, so `unchanged` is always 0 and every payload row counts as `synced` — that is not a sign every row changed.
+- Delta detection is built into the sync — unchanged rows are skipped automatically, don't try to diff anything yourself before calling the ingest script.
 - A non-zero `unparsed_amounts` means non-blank money cells failed to parse (money dropped silently) — call it out in the report.
 - If the script aborts with a **shrink guard** error (payload >20% smaller than what's stored), that almost always means a truncated fetch: the `A1:Z1000` range or a pagination cursor cut the grid short. Re-fetch with a wider range. Do **not** add `--allow-shrink` to make the error go away — only use it when the user confirms the sheet really did shrink that much.
 - A **header mismatch** error names the missing columns: the tab or range is wrong (the grid may start below row 1), not the sync.

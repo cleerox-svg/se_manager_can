@@ -67,10 +67,10 @@ on [NaughtRFP](../rfp-responder)'s stack and Okta dark-theme UI.
   "Mark final" button alongside "Save draft" — status is reflected as a
   badge next to the tab label and on the Team page.
 - **Technical Forecast** — weekly Technical Forecast Call view modeled on
-  Okta's Presales Technical Win Process, synced from the Team Tracking
-  Sheet's Technical Forecast tab (currently "Claude This q and next" —
-  auto-refreshes every 24h, tab names get renamed by the user from time to
-  time, see CLAUDE.md). As of 2026-09-15 the sheet dropped both "Lead Sales
+  Okta's Presales Technical Win Process, synced from the standalone
+  Technical Forecast sheet's tab (currently "Canada SE Tech Forecast
+  current and next q" — auto-refreshes every 24h, tab names get renamed by
+  the user from time to time, see CLAUDE.md). As of 2026-09-15 the sheet dropped both "Lead Sales
   Engineer" and "Deal Forecast Status" entirely — there is no per-deal SE
   or forecast-confidence signal left in the tab at all, so every synced row
   now attributes purely via the opportunity-name→`deals.se_rep_id` fallback
@@ -322,8 +322,8 @@ Data gets in via one of two paths — see [SETUP.md](SETUP.md):
   report on its own — activate it from the Team page after a look.
 - `deals` — synced from the Team Tracking Sheet's open-pipeline tab, one row
   per open opportunity.
-- `closed_deals` — synced from the Team Tracking Sheet's closed-deal export
-  tab ("Canada SE Closed This Fiscal Year"), one row per closed opportunity —
+- `closed_deals` — synced from the standalone closed-deal export sheet's
+  tab ("Tech wins and losses"), one row per closed opportunity —
   both Closed/Won and Closed/Lost, not won deals only — flagged `tech_win`
   when Presales Stage is "6 - Technical Win". Loaded the same MCP-assisted
   way as `deals` (`py mcp_ingest.py closed_deals <json_file>`), and folded
@@ -360,8 +360,8 @@ Data gets in via one of two paths — see [SETUP.md](SETUP.md):
   without a "Lead Sales Engineer" value still fall back to
   `rep_name = "Unassigned"` (`se_rep_id = NULL`). Closed-won vs. closed-lost
   detection is unaffected, since it keys on `sales_stage`, not `rep_name`.
-- `tech_forecast_deals` — synced from the Team Tracking Sheet's Technical
-  Forecast tab, one row per open deal in the technical-win pipeline. As of
+- `tech_forecast_deals` — synced from the standalone Technical Forecast
+  sheet's tab, one row per open deal in the technical-win pipeline. As of
   the 2026-09-15 reformat, the sheet dropped "Lead Sales Engineer" and
   "Deal Forecast Status" entirely — `lead_se_name` and `forecast_status` are
   always stored NULL now (the column mappings and group levels stay in

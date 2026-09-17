@@ -5,6 +5,8 @@ import DealsTable from './DealsTable.jsx';
 import OpportunityCard from './OpportunityCard.jsx';
 import { fmtMoney, oppLink, presalesStageBadge } from './dealHelpers.jsx';
 
+const LOOK_FORWARD_MIN_ARR = 150000;
+
 const QUARTER_BUCKETS = [
   { key: 'overdue', label: 'Overdue' },
   { key: 'current', label: 'Current Quarter' },
@@ -89,6 +91,8 @@ export default function LookForwardInspect({ deals, reps, onAssigned }) {
               const bTotal = b.items.reduce((s, d) => s + (d.amount || 0), 0);
               const sectionId =
                 b.key === 'current' ? 'current-quarter-section' : b.key === 'next' ? 'next-quarter-section' : undefined;
+              const mainItems = b.items.filter((d) => (d.amount || 0) >= LOOK_FORWARD_MIN_ARR);
+              const belowItems = b.items.filter((d) => (d.amount || 0) < LOOK_FORWARD_MIN_ARR);
               return (
                 <details
                   key={b.key}
@@ -99,7 +103,7 @@ export default function LookForwardInspect({ deals, reps, onAssigned }) {
                     {b.label} · {b.items.length} deal{b.items.length === 1 ? '' : 's'} · {fmtMoney(bTotal)}
                   </summary>
                   <div className="opp-card-list">
-                    {b.items.map((d) => (
+                    {mainItems.map((d) => (
                       <OpportunityCard
                         key={d.sheet_key || d.opportunity_id}
                         d={d}
@@ -108,6 +112,23 @@ export default function LookForwardInspect({ deals, reps, onAssigned }) {
                       />
                     ))}
                   </div>
+                  {belowItems.length > 0 && (
+                    <details className="flyout">
+                      <summary>
+                        Show {belowItems.length} deal{belowItems.length === 1 ? '' : 's'} below $150K
+                      </summary>
+                      <div className="opp-card-list">
+                        {belowItems.map((d) => (
+                          <OpportunityCard
+                            key={d.sheet_key || d.opportunity_id}
+                            d={d}
+                            reps={reps}
+                            onAssign={handleAssign}
+                          />
+                        ))}
+                      </div>
+                    </details>
+                  )}
                 </details>
               );
             })}

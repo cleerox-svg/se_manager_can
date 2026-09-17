@@ -126,20 +126,30 @@ What a sync returns and what can stop it:
 The Team Tracking Sheet's tabs get renamed by the user from time to time —
 don't trust hardcoded tab names in this file, always confirm live via
 `get_spreadsheet_info` (which lists by stable `gid`) before a sync. As of
-2026-08-31 there are three tabs: "Lead SE Pipeline SFDC" (gid `0`, open
-pipeline → `deals` — formerly called "SFDC"), "Canada SE Closed This
-Fiscal Year" (gid `1875218606`, closed-won export → `closed_deals`, one
-row per closed opportunity, `tech_win` flag set when Presales Stage is
-`'6 - Technical Win'` — formerly "Sheet3"), and "Claude This q and next"
-(gid `396663916`, Technical Forecast pipeline → `tech_forecast_deals` —
-replaced "Satish Technical Forecast Current Q"/gid `931673469`; this tab
+2026-09-17 the Team Tracking Sheet itself carries one tab in scope for this
+project: "Lead SE Pipeline SFDC" (gid `0`, open pipeline → `deals` —
+formerly called "SFDC"). The closed-deal export and Technical Forecast
+pipeline used to be tabs on this same spreadsheet; as of 2026-09-17 each was
+split out into its own standalone spreadsheet (so Google Sheets-side
+auto-refresh can be enabled independently for each): closed-deal export →
+`closed_deals` now lives in spreadsheet `12r7Y6BBtcowuyTnU_U6gUTTsn14SF3Ej-qcsweQA9OY`,
+tab "Tech wins and losses" (gid `0` in the new spreadsheet — a fresh gid;
+formerly "Canada SE Closed This Fiscal Year"/gid `1875218606` back when it
+was a tab on the Team Tracking Sheet, and "Sheet3" before that; `tech_win`
+flag set when Presales Stage is `'6 - Technical Win'`). Technical Forecast
+pipeline → `tech_forecast_deals` now lives in spreadsheet
+`1g3KNpgKR-d_6InGgaP5dg6u1DPFCrph1hM1STI7mjrA`, tab "Canada SE Tech Forecast
+current and next q" (gid `396663916`, unchanged from when it was a tab on
+the Team Tracking Sheet as "Claude This q and next"; before that it replaced
+"Satish Technical Forecast Current Q"/gid `931673469`; this tab
 auto-refreshes every 24 hours, so a live fetch is always treated as
 fresh). The Google Drive content-export tool
 (`google_drive-get_drive_file_content`) only returns the default/first
 sheet as CSV — it cannot target a tab by name. To read a specific tab,
-authenticate and use the dedicated `mcp__google_sheets__*` tools instead:
-`get_spreadsheet_info` to confirm the current tab name/gid, then
-`read_sheet_values` with an explicit `TabName!A1:Z1000`-style range.
+authenticate and use the dedicated `mcp__google__google_workspace-*` tools
+instead: `mcp__google__google_workspace-get_spreadsheet_info` to confirm the
+current tab name/gid, then `mcp__google__google_workspace-read_sheet_values`
+with an explicit `TabName!A1:Z1000`-style range.
 As of 2026-09-15 the sheet dropped its old three-level Team Member Name >
 Team Role > Region grouping — it's now a flat, single-manager export, one
 row per closed opportunity, no grouping/hierarchy left at all.
@@ -212,6 +222,16 @@ against `deals.se_rep_id` as the sole remaining signal. One consequence:
 `lead_se_name`, now flags every tech-forecast deal rather than genuinely
 unassigned ones — a known, accepted side effect, not a bug to chase.
 
+**Flag, not yet acted on (2026-09-17):** now that the Technical Forecast
+tab lives in its own standalone spreadsheet (`1g3KNpgKR-d_6InGgaP5dg6u1DPFCrph1hM1STI7mjrA`),
+a live header read shows a "Lead Sales Engineer" column has reappeared,
+contradicting the "dropped entirely" claim above. Also new: a "POC"
+column (not in `tech_forecast_sync.py`'s or `closed_deals_sync.py`'s
+`_HEADER_MAP` on either new spreadsheet) with what look like TRUE/FALSE
+values. Neither has been investigated or wired up — confirm with the user
+whether "Lead Sales Engineer" is genuinely repopulated (vs. an artifact of
+the spreadsheet split) before touching `_HEADER_MAP`/`_GROUP_LEVELS`.
+
 The sheet's query isn't scoped to our team only — it also carries deals
 whose Opportunity Owner: Manager is Greg Rainbird, a different sales org.
 `tech_forecast_sync.py` no longer drops those rows; instead it tags any row
@@ -247,8 +267,8 @@ moved, and back-filling `now` would show a month-old deal as fresh.
 
 The sheet's three notes columns (Pre-Sales Notes, SE Manager Notes,
 Pre-Sales Next Steps) hold long dated logs, newest entry first (e.g. "RK
-Aug-31-2026 : ... \r\n\r\nRK Aug-24-2026 : ..."). `mcp__google_sheets__
-google_sheets-read_sheet_values` truncates any single cell at roughly 300
+Aug-31-2026 : ... \r\n\r\nRK Aug-24-2026 : ..."). `mcp__google__
+google_workspace-read_sheet_values` truncates any single cell at roughly 300
 characters (confirmed by fetching an isolated cell — it's the tool's own
 per-cell limit, not a display artifact of wide-range reads), which in
 practice keeps the newest dated entry and cuts off older history with a
@@ -518,8 +538,8 @@ scratchpad for one task, not a running log.
 | `attribution.py` | The single copy of the three-step SE precedence: `EFFECTIVE_SE_ID_SQL`, `LEAD_SE_ID_SQL`, `ATTRIBUTED_SE_ID_SQL`, `effective_se_id(row)` |
 | `sheet_parse.py` | Shared grouped-sheet parsing/loading for the three sheet syncs: `parse_amount`, `parse_date`, `strip_group_label`, `is_marker_cell`, `map_header`, `build_sheet_key`, `row_fingerprint`, `match_rekeyed_rows`, `guard_row_shrink`, `delete_keys`, `write_setting`. No db/Flask/gspread imports |
 | `sheets_sync.py` | Google Sheets "Lead SE Pipeline SFDC" tab → `deals` table |
-| `closed_deals_sync.py` | Google Sheets "Canada SE Closed This Fiscal Year" tab (closed-deal export, Won and Lost, technical-win flag) → `closed_deals` table |
-| `tech_forecast_sync.py` | Google Sheets "Claude This q and next" tab (Technical Forecast pipeline, flat layout as of 2026-09-15 — no Lead SE/Deal Forecast Status grouping, Presales Stage flat per-deal) → `tech_forecast_deals` table; also captures the daily snapshot used for week-over-week deltas |
+| `closed_deals_sync.py` | Standalone Google Sheet "Tech wins and losses" tab (closed-deal export, Won and Lost, technical-win flag) → `closed_deals` table |
+| `tech_forecast_sync.py` | Standalone Google Sheet "Canada SE Tech Forecast current and next q" tab (Technical Forecast pipeline, flat layout as of 2026-09-15 — no Lead SE/Deal Forecast Status grouping, Presales Stage flat per-deal) → `tech_forecast_deals` table; also captures the daily snapshot used for week-over-week deltas |
 | `tech_forecast_report.py` | Pure aggregation/report logic for the Technical Forecast page + Slack preread (bucket totals, key metrics, top deals w/ fiscal-quarter bucket + heuristic discussion question, weekly deltas, needs-Lead-SE list, missing-notes list) and the Actions page's SFDC Updates card (`build_sfdc_updates`/`draft_sfdc_note` — rule-based per-opportunity Salesforce note drafts) — no Flask dependency, reused by `app.py` and `tech_forecast_sync.py` |
 | `slack_sync.py` | Slack `search.messages` → `slack_notes` table |
 | `calendar_sync.py` | MCP-assisted only — loads already-classified Google Calendar events (`win_lab` / `hiring_interview` / `customer_meeting`, classified by the `calendar-sync` agent) → `calendar_events` table |

@@ -16,20 +16,21 @@ Usage:
                       "Close Date", "Stage", "Presales Stage", "Opportunity ID"],
                      ["Teknion - ODA", " $ 3,064.52 ", "Matt Hatherley", "5/4/2026",
                       "10 - Closed/Won", "", "006WR00000hfyU8"], ...]}
-        (the raw "Canada SE Closed This Fiscal Year" grid from the Team
-        Tracking Sheet — as of the 2026-09-15 reformat this is a flat,
-        single-manager export with no Team Member Name/Team Role/Region
-        grouping and no per-deal SE column at all)
+        (the raw "Tech wins and losses" grid from the standalone closed-deals
+        sheet — as of the 2026-09-15 reformat this is a flat, single-manager
+        export with no Team Member Name/Team Role/Region grouping; see
+        closed_deals_sync.py's docstring for the current per-deal SE column
+        status)
 
     py mcp_ingest.py tech_forecast <json_file>
         {"values": [["Presales Stage", "Amount (converted)", "Opportunity Name",
                       "Opportunity ID", "Opportunity Owner", "Stage", "Close Date", ...],
                      ["2 - Discovery & Technical Qualification", " $ 3,064.52 ", "Teknion - ODA",
                       "006WR00000hfyU8", "Matt Hatherley", "10 - Closed/Won", "5/4/2026", ...], ...]}
-        (the raw "Claude This q and next" grid from the Team Tracking Sheet —
-        as of the 2026-09-15 reformat "Lead Sales Engineer" and "Deal Forecast
-        Status" are both gone, so SE attribution comes only from the
-        opportunity-name join fallback in attribution.py)
+        (the raw "Canada SE Tech Forecast current and next q" grid from the
+        standalone tech-forecast sheet — as of the 2026-09-15 reformat "Deal
+        Forecast Status" is gone; see tech_forecast_sync.py's docstring for
+        the current "Lead Sales Engineer" column status)
 
     py mcp_ingest.py slack <json_file>
         {"se_rep_id": 5, "matches": [

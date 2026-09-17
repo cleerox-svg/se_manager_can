@@ -134,6 +134,8 @@ class Database:
         # composite sheet_key, which churns whenever a sheet cell is edited.
         if "opportunity_id" not in cols:
             c.execute("ALTER TABLE deals ADD COLUMN opportunity_id TEXT")
+        if "row_fingerprint" not in cols:
+            c.execute("ALTER TABLE deals ADD COLUMN row_fingerprint TEXT")
 
         cols = {row["name"] for row in c.execute("PRAGMA table_info(tech_forecast_deals)")}
         if "assigned_se_rep_id" not in cols:
@@ -261,6 +263,7 @@ class Database:
                     record_type      TEXT,
                     type             TEXT,
                     quarter          TEXT,
+                    row_fingerprint  TEXT,
                     last_synced_at   TEXT DEFAULT (datetime('now'))
                 );
 

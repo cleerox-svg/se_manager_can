@@ -1,8 +1,8 @@
-"""Pulls the Team Tracking Sheet's "Claude This q and next" tab (Technical
-Forecast export — Presales Stage, Technical Win Date) into the local
-`tech_forecast_deals` table. The sheet itself auto-refreshes every 24 hours,
-so a live MCP fetch of this tab is always considered fresh — this script does
-no staleness-of-fetch checking of its own.
+"""Pulls the standalone "Canada SE Tech Forecast current and next q" sheet's
+tab (Technical Forecast export — Presales Stage, Technical Win Date) into the
+local `tech_forecast_deals` table. The sheet itself auto-refreshes every 24
+hours, so a live MCP fetch of this tab is always considered fresh — this
+script does no staleness-of-fetch checking of its own.
 
 As of 2026-09-15, the sheet dropped both former group columns entirely:
 "Lead Sales Engineer" (the column `attribution.py`'s step-2 name match keys

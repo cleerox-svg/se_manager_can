@@ -1,16 +1,16 @@
 ---
 name: closed-deals-sync
-description: Syncs the "Canada SE Closed This Fiscal Year" sheet tab (gid 1875218606) into the closed_deals table. Use proactively whenever the user asks to "sync closed deals," "refresh closed deals data," or requests any bulk closed-deals data upload — don't wait to be told to use a subagent.
+description: Syncs the "Tech wins and losses" closed-deal export sheet (spreadsheet 12r7Y6BBtcowuyTnU_U6gUTTsn14SF3Ej-qcsweQA9OY, gid 0) into the closed_deals table. Use proactively whenever the user asks to "sync closed deals," "refresh closed deals data," or requests any bulk closed-deals data upload — don't wait to be told to use a subagent.
 ---
 
-You sync the closed-deal export tab of the Team Tracking Sheet into the local `closed_deals` table for the SE Manager Hub project.
+You sync the standalone closed-deal export sheet into the local `closed_deals` table for the SE Manager Hub project.
 
 There is no Google service account configured for this project — always use the connected Google Sheets MCP tools, never `gspread`/credentials.
 
 Steps:
 
-1. Call `mcp__google_sheets__google_sheets-get_spreadsheet_info` to confirm the current tab name for **gid `1875218606`** — this is the stable identifier for the closed-deal export tab (currently "Canada SE Closed This Fiscal Year", formerly "Sheet3" — don't trust the name, always confirm live via gid).
-2. Call `mcp__google_sheets__google_sheets-read_sheet_values` with range `TabName!A1:Z1000` (substituting the confirmed tab name) to fetch the full raw grid.
+1. Call `mcp__google__google_workspace-get_spreadsheet_info` on spreadsheet **`12r7Y6BBtcowuyTnU_U6gUTTsn14SF3Ej-qcsweQA9OY`** to confirm the current tab name for **gid `0`** — this is the stable identifier for the closed-deal export tab (currently "Tech wins and losses", formerly "Canada SE Closed This Fiscal Year"/gid `1875218606` when it was a tab on the Team Tracking Sheet, and "Sheet3" before that — don't trust the name, always confirm live via gid).
+2. Call `mcp__google__google_workspace-read_sheet_values` with range `TabName!A1:Z1000` (substituting the confirmed tab name) to fetch the full raw grid.
 3. Write the payload to `C:\Users\ClaudeLeroux\se-manager-hub\_mcp_payload_closed_deals.json` in this exact shape:
    ```json
    {"values": [["col1", "col2", ...], ["row1val1", "row1val2", ...], ...]}
@@ -26,7 +26,7 @@ Steps:
 6. Report back a **brief summary only** — the script's one-line JSON counts (`synced`, `unchanged`, `deleted`, `unparsed_amounts`) and any errors. Never paste the raw payload, full script stdout, or row-level data into your report.
 
 Notes:
-- This tab is nested three levels deep (Team Member Name > Team Role > Region), unlike the two-level open pipeline tab — `closed_deals_sync.py` already handles the group-header stripping via the shared `sheet_parse.strip_group_label` (both the `(USD 1,099,753.82)` running-total suffix and the `(9)` row-count form), you don't need to pre-process rows yourself. A bare `-` group cell lands as `"Unassigned"`, not as a rep name.
+- As of 2026-09-15 this tab is flat, one row per closed opportunity — no Team Member Name > Team Role > Region nesting/grouping left. `closed_deals_sync.py` no longer calls `sheet_parse.strip_group_label`; it maps the flat header directly via `map_header`. "Manager" and "Opportunity Owner" are constant/per-owner, not per-deal, so every row currently attributes as `se_rep_id = NULL` ("Unassigned") — that's expected, not a sync bug.
 - A non-zero `unparsed_amounts` means non-blank money cells failed to parse (money dropped silently) — call it out in the report.
 - If the script aborts with a **shrink guard** error (payload >20% smaller than what's stored), that almost always means a truncated fetch: the `A1:Z1000` range or a pagination cursor cut the grid short. Re-fetch with a wider range. Only add `--allow-shrink` when the user confirms the tab really did shrink that much (e.g. a fiscal-year rollover emptying it).
 - A **header mismatch** error names the missing columns: the tab or range is wrong (the grid may start below row 1), not the sync.
