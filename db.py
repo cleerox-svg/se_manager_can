@@ -95,6 +95,29 @@ class Database:
             c.execute("ALTER TABLE se_reps ADD COLUMN coverage_role TEXT")
         if "region" not in cols:
             c.execute("ALTER TABLE se_reps ADD COLUMN region TEXT")
+        # Narrower than `active`: a departed rep and a temp backfill covering
+        # for one (e.g. Auth0 backup support during a new-hire's onboarding)
+        # are both active=1, but only the backfill should be excluded from
+        # the manager's personal Win Rate rollup — their deals still need to
+        # count toward team pipeline/forecast via se_rep_id, just not toward
+        # a per-rep stat card for someone who isn't actually on the team.
+        if "direct_report" not in cols:
+            c.execute("ALTER TABLE se_reps ADD COLUMN direct_report INTEGER DEFAULT 0")
+        # Idempotent backfill, not a one-time cleanup: safe/cheap to re-run every
+        # startup (unlike _one_time_cleanups' DROPs), so it stays here next to the
+        # ALTER rather than behind the schema_version gate. Keeps the manager's
+        # actual 6 direct reports flagged even if the column value ever drifts.
+        c.execute(
+            "UPDATE se_reps SET direct_report = 1 WHERE name IN (?, ?, ?, ?, ?, ?)",
+            (
+                "Rishika Kondaveeti",
+                "Valentin Bourneuf",
+                "Nic Da Silva",
+                "Sean Keleher",
+                "Ryan Morren",
+                "Pratul Agarwal",
+            ),
+        )
 
         cols = {row["name"] for row in c.execute("PRAGMA table_info(deals)")}
         if "backup_se_rep_id" not in cols:
