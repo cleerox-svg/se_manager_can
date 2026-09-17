@@ -5,10 +5,9 @@ import {
   salesStageBadge,
   DealFlags,
   SeAssignSelect,
-  BackupSeAssignSelect,
 } from './dealHelpers.jsx';
 
-export default function OpportunityCard({ d, reps, onAssign, onAssignBackup }) {
+export default function OpportunityCard({ d, reps, onAssign }) {
   return (
     <div className="opp-card">
       <div className="opp-card-header">
@@ -42,7 +41,6 @@ export default function OpportunityCard({ d, reps, onAssign, onAssignBackup }) {
 
       <div className="opp-card-meta">
         <SeAssignSelect d={d} reps={reps} onAssign={onAssign} />
-        <BackupSeAssignSelect d={d} reps={reps} onAssign={onAssignBackup} />
         <DealFlags d={d} />
         {salesStageBadge(d.sales_stage)}
         <span>

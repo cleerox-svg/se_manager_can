@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { assignSe, assignBackupSe } from '../../api.js';
+import { assignSe } from '../../api.js';
 import { toast } from '../../toast.js';
 import DealsTable from './DealsTable.jsx';
 import OpportunityCard from './OpportunityCard.jsx';
@@ -66,19 +66,6 @@ export default function LookForwardInspect({ deals, reps, onAssigned }) {
     }
   }
 
-  async function handleAssignBackup(sheetKey, value) {
-    setBusy(true);
-    try {
-      await assignBackupSe(sheetKey, value ? Number(value) : null, null);
-      toast('Backup SE assignment updated', 'success');
-      await onAssigned?.();
-    } catch {
-      toast('Failed to update backup SE assignment', 'error');
-    } finally {
-      setBusy(false);
-    }
-  }
-
   const needsLeadSeColumns = buildNeedsLeadSeColumns();
 
   return (
@@ -118,7 +105,6 @@ export default function LookForwardInspect({ deals, reps, onAssigned }) {
                         d={d}
                         reps={reps}
                         onAssign={handleAssign}
-                        onAssignBackup={handleAssignBackup}
                       />
                     ))}
                   </div>
