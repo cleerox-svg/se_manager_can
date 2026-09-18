@@ -20,7 +20,7 @@ _CSS = Path(__file__).resolve().parent.parent / "frontend" / "src" / "style.css"
 
 # Foreground tokens that must stay legible against the card surface in BOTH
 # themes. Each must be declared in both blocks — see the declared-twice test.
-_SEMANTIC = ("--green", "--amber", "--red", "--purple", "--teal")
+_SEMANTIC = ("--green", "--amber", "--red", "--purple", "--teal", "--blue")
 _INK = ("--text-primary", "--text-secondary", "--text-muted", "--text-accent")
 
 # Light mode had every one of these set to #FFFFFF, which is not merely flat:
@@ -87,6 +87,24 @@ def test_status_hues_are_declared_separately_for_each_theme(token):
     assert _token(LIGHT, token), (
         f"{token} is declared in :root but not in body.light-mode, so light mode "
         "inherits a hue stepped for the navy ground. Declare it in both."
+    )
+
+
+def test_brand_chrome_blue_is_never_used_as_text_ink():
+    """`--okta-blue` / `--okta-blue-lt` are brand *chrome* — the filled-button
+    ground, the active tab's underline, the scrollbar thumb. They are single
+    values shared by both themes, so the moment one is used as `color:` it
+    becomes ink that light mode never stepped: `--okta-blue-lt` measures
+    2.84:1 on a white card, which is how every link, the blue badge and the
+    active sidebar/tab labels failed AA in light mode. Blue ink is `--blue`,
+    which is declared per theme like every other status hue.
+    """
+    css = _CSS.read_text()
+    ink = re.findall(r"(?<![-\w])color:\s*var\(\s*(--okta-blue[\w-]*)\s*\)", css)
+    assert not ink, (
+        f"brand chrome token(s) used as text colour: {sorted(set(ink))}. "
+        "Use --blue (declared in both :root and body.light-mode) for blue ink; "
+        "--okta-blue* stay for grounds, borders and bars."
     )
 
 

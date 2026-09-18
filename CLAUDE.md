@@ -424,11 +424,16 @@ Two rules matter more than the rest, because breaking either is invisible in
 whichever theme you happen to have open:
 
 - **Status hues are per-theme.** `--green`/`--amber`/`--red`/`--purple`/
-  `--teal` (and `--text-muted`) are declared in BOTH `:root` and
+  `--teal`/`--blue` (and `--text-muted`) are declared in BOTH `:root` and
   `body.light-mode`, with different values. They used to be declared once,
   stepped for navy, and inherited by light mode — where amber sat at 2.03:1
   while carrying the "No update this week" flag. Adding a status colour means
   adding it twice, and adding it to the test's `_SEMANTIC` list.
+  `--blue` was added late: it was missed by the original fix because blue had
+  no status token, so blue *text* borrowed the brand chrome token
+  `--okta-blue-lt` — one value for both themes, and a link colour that failed
+  AA on white. Blue ink is `--blue`; `--okta-blue`/`--okta-blue-lt` are grounds
+  and borders only, which `test_ui_contrast.py` now enforces.
 - **Light mode's surfaces stay distinct.** `--bg-app`/`--bg-card`/
   `--bg-card-hover`/`--bg-input`/`--bg-tag` were all `#FFFFFF`, which didn't
   just look flat: hover feedback stopped working (hover colour == base colour)

@@ -23,8 +23,9 @@ have open**, which is why they're the ones worth stating first.
 
 ### 1. Status hues are per-theme, not shared
 
-`--green` / `--amber` / `--red` / `--purple` / `--teal` are declared **twice** —
-once in `:root` (dark) and again in `body.light-mode` — with different values.
+`--green` / `--amber` / `--red` / `--purple` / `--teal` / `--blue` are declared
+**twice** — once in `:root` (dark) and again in `body.light-mode` — with
+different values.
 
 They used to be declared once, stepped for the navy ground, and inherited by
 light mode. On white, amber measured **2.03:1** while carrying the "No update
@@ -33,6 +34,19 @@ simply almost invisible to anyone using the light theme.
 
 Adding a status colour means adding it in both blocks. The same applies to
 `--text-muted`, which failed in *both* themes before (2.98:1 light, 2.76:1 dark).
+
+**Blue was missed the first time round.** The other five hues were split per
+theme; blue had no status token at all, so everything blue kept pointing at the
+brand chrome token `--okta-blue-lt` (`#00A4E0`) — a single value shared by both
+themes, measuring **2.84:1** on a white card. That was every link in the app,
+the `badge-blue` "Tech win (open)" chip, the active sidebar and tab labels, the
+Look Back quarter/SE accordion summaries, the Actions page card icons and the
+Tech Forecast sparkline. `--blue` now carries blue **ink** and is stepped per
+theme like its five siblings; `--okta-blue` / `--okta-blue-lt` stay as brand
+*chrome* — the filled-button ground, the tab underline, the ARR bar, the
+scrollbar thumb — which is why `test_brand_chrome_blue_is_never_used_as_text_ink`
+exists: using either as a `color:` is how the hue escaped the per-theme rule in
+the first place.
 
 ### 2. Light mode's surfaces must stay distinct
 
@@ -57,6 +71,7 @@ Measured against `--bg-card` in each theme. Every value below is ≥ AA (4.5:1).
 | `--red` | `#FF6B6B` | 6.03:1 | `#C92A2A` | 5.46:1 |
 | `--purple` | `#9B6BFA` | 4.69:1 | `#6C3FD4` | 6.36:1 |
 | `--teal` | `#00B4C8` | 6.67:1 | `#00707E` | 5.80:1 |
+| `--blue` | `#00A4E0` | 5.89:1 | `#0A6CA8` | 5.64:1 |
 | `--text-primary` | `#E8EEF5` | — | `#142235` | — |
 | `--text-secondary` | `#7B9CB5` | 5.79:1 | `#4C6478` | 6.17:1 |
 | `--text-muted` | `#7E98B3` | 5.60:1 | `#57697C` | 5.65:1 |
@@ -77,7 +92,16 @@ and the interface stops looking like a wireframe.
 
 Chip fills come from the matching `--*-dim` token, never a hardcoded `rgba()`.
 They were literal rgba values of the *dark* hues, so a badge background stayed
-a dark-theme tint on a white card.
+a dark-theme tint on a white card. `--blue-dim` (`rgba(0,164,224,.14)` dark,
+`rgba(10,108,168,.12)` light) was the last one left doing that: as
+`--okta-blue-dim` it was a single dark-navy tint reused on white behind the blue
+badge, the active sidebar item and the Actions card icon.
+
+Brand chrome sits outside this table on purpose. `--okta-blue` (`#007DC1`) and
+`--okta-blue-lt` (`#00A4E0`) are grounds and borders — the primary button and
+its hover step, the active tab's underline, the ARR bar, the scrollbar thumb —
+so they're measured against the mark they sit on, not against `--bg-card`, and
+they are deliberately one value for both themes. They are not ink: see rule 1.
 
 ---
 

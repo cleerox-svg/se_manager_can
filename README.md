@@ -296,8 +296,9 @@ sheet parsing and the fiscal-quarter math among them. Run it after touching
 
 It also covers the frontend palette: `tests/test_ui_contrast.py` parses
 `frontend/src/style.css` and fails if a colour token drops below WCAG AA, if a
-status hue is declared for only one theme, if light mode's surfaces collapse
-onto one white, or if the presales-stage ramp stops reading in order. Those are
+status hue is declared for only one theme, if a brand chrome colour is used as
+text ink, if light mode's surfaces collapse onto one white, or if the
+presales-stage ramp stops reading in order. Those are
 failures you can't see in whichever theme you happen to have open — a shared
 amber sat at 2.03:1 on white for a while, carrying the "No update this week"
 flag — so they're checked rather than remembered. The palette itself, with the

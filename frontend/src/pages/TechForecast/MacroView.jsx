@@ -28,9 +28,9 @@ function Sparkline({ points }) {
   return (
     <svg className="stat-spark" viewBox={`0 0 ${w} ${h}`} width={w} height={h}
          role="img" aria-label={`Trend over the last ${points.length} syncs`}>
-      <path d={d} fill="none" stroke="var(--okta-blue-lt)" strokeWidth="2"
+      <path d={d} fill="none" stroke="var(--blue)" strokeWidth="2"
             strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx={lx} cy={ly} r="2.6" fill="var(--okta-blue-lt)" />
+      <circle cx={lx} cy={ly} r="2.6" fill="var(--blue)" />
     </svg>
   );
 }

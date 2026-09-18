@@ -15,9 +15,11 @@
   --border-active: #007DC1;
   --border-focus:  #00A4E0;
 
+  /* Brand chrome, NOT ink: --okta-blue is the filled-button/border/bar ground
+     and --okta-blue-lt its hover step. Neither is stepped per theme because
+     neither is ever read as text on a card — for blue text, use --blue below. */
   --okta-blue:     #007DC1;
   --okta-blue-lt:  #00A4E0;
-  --okta-blue-dim: rgba(0,125,193,.15);
   --okta-navy:     #00297A;
 
   /* Status hues are per-theme, not shared: these are stepped for the navy
@@ -28,6 +30,9 @@
   --red:    #FF6B6B;   /* #E03131 measured 3.71:1 on --bg-card; this is 6.03:1 */
   --purple: #9B6BFA;
   --teal:   #00B4C8;
+  /* Blue was missed when the rest were split per theme — it kept reading
+     --okta-blue-lt, which measures 2.84:1 on a white card. */
+  --blue:   #00A4E0;
 
   /* Chip fills, derived per theme so a badge background tracks its own text
      colour instead of staying a dark-theme tint on a white card. */
@@ -35,6 +40,7 @@
   --amber-dim:  rgba(245,166,35,.14);
   --red-dim:    rgba(255,107,107,.15);
   --purple-dim: rgba(155,107,250,.14);
+  --blue-dim:   rgba(0,164,224,.14);
 
   /* Presales stage is ordinal (1 Qualify -> 6 Technical Win), so it gets one
      hue stepped light-to-dark rather than unrelated categorical colours —
@@ -78,7 +84,7 @@ body {
   color: var(--text-primary);
   min-height: 100vh;
 }
-a { color: var(--okta-blue-lt); text-decoration: none; }
+a { color: var(--blue); text-decoration: none; }
 a:hover { color: var(--text-primary); }
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -126,7 +132,7 @@ a:hover { color: var(--text-primary); }
 }
 .sidebar-btn:hover { background: var(--bg-card-hover); color: var(--text-primary); box-shadow: var(--depth-raised); }
 .sidebar-btn:active { box-shadow: var(--depth-inset); transform: translateY(1px); }
-.sidebar-btn.active { background: var(--okta-blue-dim); color: var(--okta-blue-lt); box-shadow: inset 0 0 0 1px rgba(0,125,193,.3); }
+.sidebar-btn.active { background: var(--blue-dim); color: var(--blue); box-shadow: inset 0 0 0 1px rgba(0,125,193,.3); }
 .sidebar-btn.active::before { opacity: 1; }
 .sidebar-btn.active:hover { box-shadow: inset 0 0 0 1px rgba(0,125,193,.3), var(--depth-raised); }
 .sidebar-btn.active:active { box-shadow: inset 0 0 0 1px rgba(0,125,193,.3), var(--depth-inset); transform: translateY(1px); }
@@ -137,7 +143,7 @@ a:hover { color: var(--text-primary); }
   transition: box-shadow .12s ease, background-color .12s ease;
 }
 .sidebar-btn:hover .sidebar-icon { box-shadow: var(--depth-raised); }
-.sidebar-btn.active .sidebar-icon { background: var(--okta-blue-dim); box-shadow: inset 0 0 0 1px rgba(0,125,193,.3); }
+.sidebar-btn.active .sidebar-icon { background: var(--blue-dim); box-shadow: inset 0 0 0 1px rgba(0,125,193,.3); }
 
 .sidebar-footer { padding: 12px 14px 16px; border-top: 1px solid var(--border); font-size: .72rem; color: var(--text-muted); }
 
@@ -208,7 +214,7 @@ tr.clickable { cursor: pointer; }
 
 /* ── Badges ──────────────────────────────────────────────────────────────── */
 .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 20px; font-size: .68rem; font-weight: 600; white-space: nowrap; }
-.badge-blue   { background: var(--okta-blue-dim); color: var(--okta-blue-lt); }
+.badge-blue   { background: var(--blue-dim); color: var(--blue); }
 .badge-green  { background: var(--green-dim); color: var(--green); }
 .badge-amber  { background: var(--amber-dim); color: var(--amber); }
 .badge-red    { background: var(--red-dim); color: var(--red); }
@@ -284,7 +290,7 @@ textarea { width: 100%; min-height: 320px; line-height: 1.5; resize: vertical; }
 .action-card-icon {
   display: flex; align-items: center; justify-content: center;
   width: 40px; height: 40px; border-radius: 10px;
-  background: var(--okta-blue-dim); color: var(--okta-blue-lt);
+  background: var(--blue-dim); color: var(--blue);
   box-shadow: inset 0 0 0 1px rgba(0,125,193,.3);
 }
 .action-card-title { font-size: .94rem; font-weight: 600; }
@@ -315,7 +321,7 @@ textarea { width: 100%; min-height: 320px; line-height: 1.5; resize: vertical; }
 }
 .tab-btn:hover { background: var(--bg-card-hover); color: var(--text-primary); box-shadow: var(--depth-raised); }
 .tab-btn:active { box-shadow: var(--depth-inset); transform: translateY(1px); }
-.tab-btn.active { color: var(--okta-blue-lt); border-bottom-color: var(--okta-blue); }
+.tab-btn.active { color: var(--blue); border-bottom-color: var(--okta-blue); }
 .tab-btn.active:hover { box-shadow: var(--depth-raised); }
 .inactive-flag { opacity: .55; }
 .slack-note { padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 8px; font-size: .82rem; background: var(--bg-card); box-shadow: var(--depth-raised); }
@@ -358,11 +364,13 @@ body.light-mode {
   --red:    #C92A2A;
   --purple: #6C3FD4;
   --teal:   #00707E;
+  --blue:   #0A6CA8;   /* was --okta-blue-lt #00A4E0 — 2.84:1, now 5.64:1 */
 
   --green-dim:  rgba(6,122,85,.12);
   --amber-dim:  rgba(154,96,0,.13);
   --red-dim:    rgba(201,42,42,.11);
   --purple-dim: rgba(108,63,212,.11);
+  --blue-dim:   rgba(10,108,168,.12);
 
   --stage-1: #D3E7F4;
   --stage-2: #9CC9E6;
@@ -387,7 +395,7 @@ body.light-mode {
 body.light-mode .btn-primary { color: #fff; }
 
 /* ── Sub-threshold flyout ────────────────────────────────────────────────── */
-.flyout summary { cursor: pointer; font-size: .82rem; font-weight: 600; color: var(--okta-blue-lt); padding: 8px 0; list-style: none; }
+.flyout summary { cursor: pointer; font-size: .82rem; font-weight: 600; color: var(--blue); padding: 8px 0; list-style: none; }
 .flyout summary::-webkit-details-marker { display: none; }
 .flyout summary::before { content: '▸ '; }
 .flyout[open] summary::before { content: '▾ '; }
