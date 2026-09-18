@@ -453,6 +453,16 @@ one is invisible in both:
   text and shouldn't move; hover and `:active` darken, never lighten, and
   `:active` names its ground rather than inheriting hover's, since a keyboard
   press fires `:active` with no `:hover`. Values in `UI_STANDARDS.md`.
+- **A gradient under text is measured at every stop, not at the middle.** The
+  sidebar's `.logo-mark` tile ran a blue ramp under white "SE": the midpoint
+  cleared AA, so the mark looked fine and a spot check would have said so, while
+  the light end sat at roughly half the bar. `test_every_stop_of_a_gradient_
+  carrying_text_clears_aa` parses the stops out of the rule, so editing the
+  gradient re-runs the check; `_GRADIENT_TEXT_SELECTORS` asserts the rule is
+  still being found, because a parse that silently matches nothing passes.
+  WCAG exempts logotype text from the contrast minimum and this tile plausibly
+  qualifies — it was fixed anyway, deliberately, and `UI_STANDARDS.md` records
+  that as a choice so it doesn't get reverted as over-reach.
 - **Light mode's surfaces stay distinct.** `--bg-app`/`--bg-card`/
   `--bg-card-hover`/`--bg-input`/`--bg-tag` were all `#FFFFFF`, which didn't
   just look flat: hover feedback stopped working (hover colour == base colour)

@@ -48,6 +48,13 @@ _BUTTON_INK = "#FFFFFF"
 _AA = 4.5  # WCAG 2.1 AA, normal-size text
 _NON_TEXT = 3.0  # WCAG 2.2 SC 1.4.11, non-text contrast (focus indicators)
 
+# A gradient that carries a label is a range of grounds, not one ground. Any
+# rule that sets both a gradient background and a literal text colour is picked
+# up here by parsing, so a new one is covered the day it is written.
+_GRADIENT_TEXT_SELECTORS = (".logo-mark",)
+
+_HEX = re.compile(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})\b")
+
 
 def _blocks():
     css = _CSS.read_text()
@@ -73,6 +80,38 @@ def _rule(selector):
     return match.group(1) if match else None
 
 
+def _expand(hex_colour):
+    """`#fff` and `#FFFFFF` are the same colour; the ratio helpers want one form."""
+    digits = hex_colour.lstrip("#")
+    if len(digits) == 3:
+        digits = "".join(d * 2 for d in digits)
+    return "#" + digits.lower()
+
+
+def _gradient_text_rules():
+    """Every rule that paints a gradient *and* sets a literal text colour, as
+    (selector, stop, ink) triples — one per colour stop.
+
+    Discovered by parsing rather than listed, so editing a gradient re-runs the
+    check against whatever it now says. Only literal hex is read: a stop or ink
+    written as a `var()` is a token, and the token tests above already own it.
+    """
+    css = _CSS.read_text()
+    triples = []
+    for selector, body in re.findall(r"(?m)^([^{}@/][^{}]*?)\s*\{([^}]*)\}", css):
+        gradient = re.search(
+            r"(?:background|background-image)\s*:[^;]*?"
+            r"(?:linear|radial|conic)-gradient\(([^;]*)\)",
+            body,
+        )
+        ink = re.search(r"(?<![-\w])color:\s*(#[0-9a-fA-F]{3,6})\s*;", body)
+        if not (gradient and ink):
+            continue
+        for stop in _HEX.findall(gradient.group(1)):
+            triples.append((selector.strip(), _expand(stop), _expand(ink.group(1))))
+    return triples
+
+
 def _luminance(hex_colour):
     hex_colour = hex_colour.lstrip("#")
     channels = (int(hex_colour[i:i + 2], 16) / 255 for i in (0, 2, 4))
@@ -88,6 +127,7 @@ def _contrast(fg, bg):
 
 DARK, LIGHT = _blocks()
 THEMES = {"dark": (DARK, DARK), "light": (LIGHT, DARK)}
+GRADIENT_TEXT = _gradient_text_rules()
 
 
 @pytest.mark.parametrize("theme", THEMES)
@@ -291,4 +331,49 @@ def test_untagged_recedes_behind_every_real_stage(theme):
     assert none_ratio < strongest, (
         f"--stage-none ({none_ratio:.2f}:1) is as prominent as the strongest real "
         f"stage ({strongest:.2f}:1) in {theme} mode"
+    )
+
+
+@pytest.mark.parametrize(
+    "selector,stop,ink", GRADIENT_TEXT, ids=[f"{s}:{c}" for s, c, _ in GRADIENT_TEXT]
+)
+def test_every_stop_of_a_gradient_carrying_text_clears_aa(selector, stop, ink):
+    """A gradient under a label is not one ground, it is a ramp of them, and the
+    label has to clear AA everywhere along it — so **every stop** is measured,
+    not the middle.
+
+    `.logo-mark` is why. Its ramp ran `#1fb0ee` → `#0042a0` under white "SE":
+    2.47:1 at the light end, 9.18:1 at the dark end, 4.58:1 at the midpoint. The
+    glyphs sit near the centre, so a midpoint-only check would have called that
+    compliant while the upper-left corner of the tile sat at barely half the bar.
+    Checking the stops is sufficient as well as necessary: relative luminance is
+    convex along a per-channel sRGB interpolation, so the ramp's lightest point —
+    its worst point under white ink — is always one of its endpoints.
+
+    The rule sets no `font-size`, so "SE" inherits 14px (`html { font-size: 14px }`)
+    at weight 700. Large text starts at 18.66px bold, so this is normal-size text
+    and owes 4.5:1, not the 3:1 allowance.
+    """
+    ratio = _contrast(ink, stop)
+    assert ratio >= _AA, (
+        f"{selector} paints {ink} on gradient stop {stop}, which is {ratio:.2f}:1 — "
+        f"below AA ({_AA}:1). Darken the stop: the midpoint of a ramp can clear the "
+        "bar while an end of it does not, and the text crosses the whole ramp."
+    )
+
+
+@pytest.mark.parametrize("selector", _GRADIENT_TEXT_SELECTORS)
+def test_the_gradients_that_carry_text_are_actually_being_found(selector):
+    """The test above is built by parsing, which is what keeps it honest when a
+    gradient is edited — and also what lets it quietly cover nothing if the rule
+    is renamed or its stops move behind a `var()`. This asserts the known
+    text-carrying gradients are still in the parsed set, so a check that stops
+    applying fails instead of passing vacuously.
+    """
+    found = {s for s, _, _ in GRADIENT_TEXT}
+    assert selector in found, (
+        f"{selector} is a gradient carrying text but was not picked up by "
+        f"_gradient_text_rules() (found: {sorted(found)}). Either it no longer "
+        "sets both a gradient background and a literal colour, or the parse needs "
+        "widening — do not leave it uncovered."
     )

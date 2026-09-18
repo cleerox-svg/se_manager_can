@@ -13,9 +13,9 @@ written down twice drifts, and drifts silently.
 declared for only one theme (or declared twice with the same value), if the
 primary button's ground stops carrying white text at AA or lightens on hover, if
 the focus indicator drops below the 3:1 non-text bar on any ground it sits on, if
-light mode's surfaces collapse together, or if the stage ramp stops reading in
-order. Change a colour and the suite tells you; you do not have to remember this
-document exists.
+any single stop of a gradient carrying text drops below AA, if light mode's
+surfaces collapse together, or if the stage ramp stops reading in order. Change a
+colour and the suite tells you; you do not have to remember this document exists.
 
 ---
 
@@ -164,6 +164,64 @@ border to do the entire job. The ring now paints `var(--border-focus)` opaque at
 2px, so it carries the indicator's contrast instead of hinting at it, and the
 focused field reads as focused at a glance rather than on inspection.
 
+### The logo mark's gradient
+
+`.logo-mark` is the sidebar's 36px "SE" tile. One value for both themes — its
+ground is self-contained, so nothing about the page behind it changes what the
+glyphs sit on.
+
+| Gradient stop | Value | White "SE" on it |
+|---|---|---|
+| light (`0%`) | `#0D7BAA` | 4.74:1 |
+| dark (`100%`) | `#0042A0` | 9.18:1 |
+| midpoint, interpolated | `#065EA5` | 6.66:1 |
+
+The light stop was `#1FB0EE`, at **2.47:1**. The interesting number is the one
+in between: the old ramp's midpoint, `#1079C7`, measured **4.58:1**. The glyphs
+sit near the centre of the tile, so a spot check at the middle — or a glance at
+the rendered mark — said *passing*, while the upper-left corner of the same tile
+sat at barely half the bar. **A gradient carrying text is a range of grounds,
+not one ground, so every stop is measured.** Checking the stops is enough as
+well as necessary: relative luminance is convex along a per-channel sRGB
+interpolation, so the ramp's lightest point is always one of its endpoints, and
+the endpoints bound the whole run.
+
+`#0042A0` is unchanged. It was never the problem, and darkening the light end
+alone is the smaller edit.
+
+**This one exceeds the requirement on purpose.** WCAG 2.1 SC 1.4.3 exempts text
+that is part of a logo or brand name from the contrast minimum, and a two-letter
+wordmark tile is close to the centre of that exemption — the conformance
+argument for leaving `#1FB0EE` alone was available and defensible. It was fixed
+anyway, by decision rather than obligation: the mark is the first thing in the
+sidebar on every page, "SE" is read as letters and not merely seen as a shape,
+and an exemption is a reason a thing may stay unreadable, not a reason it should.
+A future reader tempted to revert this should know it was a choice, and that the
+test below now encodes the choice.
+
+**The cost is visible, and worth stating plainly.** The new stop is
+**ΔE2000 17.7** from the old one — an order of magnitude past the button
+ground's 1.56, and nothing like a nudge. The tile reads as a distinctly deeper
+blue than it used to; anyone who knew the old mark will notice. The travel
+survives — L\* runs 48.5 → 30.5 rather than 67.7 → 30.5 — so it is still a
+gradient and not a flat block, but it is about half the sweep it was. There is
+no cheaper option: any colour clearing 4.5:1 under white is at least ~17 ΔE from
+`#1FB0EE`, because the required drop in lightness *is* the distance. Holding the
+hue (198°) and saturation exactly costs 0.1 ΔE over the unconstrained minimum,
+so the character was kept for free.
+
+4.74:1 leaves margin on the bar rather than landing on it, for the same reason
+`--btn-primary-bg` sits at 4.72 — see "Adding a colour".
+
+The `inset 0 1px 0 rgba(255,255,255,.25)` top highlight does **not** rescue the
+ground under the glyphs, and was not counted on to. Zero blur and zero spread
+means it paints the topmost 1px row only; "SE" inherits 14px (`html { font-size:
+14px }`) at weight 700, so its cap height is ~10px centred in 36px and its
+highest pixel lands around y=13 — a dozen pixels clear of the highlight. The
+composited row is `#4A9CBF` (3.09:1 under white) and carries no text. That the
+glyphs are 14px also settles which bar applies: large text starts at 18.66px
+bold, so 4.5:1, not the 3:1 allowance.
+
 ---
 
 ## Charts
@@ -256,6 +314,19 @@ Non-text tokens (focus indicators, and any other mark the user has to *see*
 rather than *read*) are held to 3:1, not 4.5:1 — `_NON_TEXT` in the same file.
 A ground that carries text is held to the text bar even when it looks like
 chrome: `--btn-primary-bg` is the worked example above.
+
+A ground that carries text is also measured at **every** value it takes. If it's
+a gradient, that means each stop, not the midpoint and not the part the glyphs
+happen to cover — `.logo-mark` is the worked example there.
+`test_every_stop_of_a_gradient_carrying_text_clears_aa` finds these rules by
+parsing rather than by a list, so editing a gradient re-runs the check against
+whatever it now says; `_GRADIENT_TEXT_SELECTORS` names the ones that must stay
+found, so a rename can't turn the check into a no-op that still passes.
+
+And a margin, not a landing: `--btn-primary-bg` at 4.72 and `.logo-mark`'s light
+stop at 4.74 were both chosen over values sitting a hundredth or two above 4.5.
+A ratio that clears the bar by 0.02 is a rounding decision, not a legible one,
+and the next well-meant tweak to the hue puts it back under.
 
 ## Re-measuring
 
