@@ -107,7 +107,23 @@ on [NaughtRFP](../rfp-responder)'s stack and Okta dark-theme UI.
   `win_status` (`closed_won` / `closed_lost` / `open`), `counts_as_revenue`,
   and `revenue_amount`, which is 0 for anything that isn't closed won — so a
   technically-won but commercially-lost deal stays on the page without
-  inflating a dollar total), Look Forward &
+  inflating a dollar total. Above the quarter groups, a celebration banner
+  surfaces wins from the last 14 days — the window is one constant,
+  `CELEBRATION_WINDOW_DAYS` in
+  `frontend/src/pages/TechForecast/winCelebration.js`. It shows a hero (the
+  largest qualifying win, tinted green for `closed_won` or blue for an open
+  technical win, with an eyebrow like "Closed won · 3 days ago", the amount,
+  the linked opportunity and the SE), then up to three further wins newest
+  first and a "+N more" line. `closed_lost` never qualifies — losses are not
+  celebrated, though they stay in the table below — and the two dollar cohorts
+  are reported separately, Closed Won $ from `revenue_amount` and Technical
+  Win $ from `amount`, never blended into one total. Nothing qualifying means
+  no banner at all, leaving the card exactly as it was. The banner is
+  dismissible per device: the dismissal is stored in `localStorage` keyed by a
+  signature of the qualifying win set, so a refresh keeps it hidden but a new
+  win brings it back. `tests/test_win_celebration.py` runs that selection
+  module under node to enforce the exclusion, the window boundary and the
+  split dollar cohorts), Look Forward &
   Inspect (open technical pipeline table, grouped into collapsible sections —
   same `<details class="flyout">` pattern as Look Back — by target Technical
   Win date's fiscal-quarter bucket, in fixed order Overdue → Current Quarter →
@@ -304,6 +320,15 @@ amber sat at 2.03:1 on white for a while, carrying the "No update this week"
 flag — so they're checked rather than remembered. The palette itself, with the
 measured ratios and the patterns built on it, is in
 [UI_STANDARDS.md](UI_STANDARDS.md); run the suite after editing `style.css`.
+
+One frontend module is covered directly rather than by parsing:
+`tests/test_win_celebration.py` runs
+`frontend/src/pages/TechForecast/winCelebration.js` (pure ESM, no React or DOM
+in it) under `node` and asserts the Look Back celebration banner's rules — that
+`closed_lost` never qualifies, that the 14-day window's boundary is where it
+claims to be, that Closed Won $ and Technical Win $ stay two figures, and that
+the dismissal signature tracks the qualifying set. The tests skip if `node`
+isn't on PATH.
 
 Data gets in via one of two paths — see [SETUP.md](SETUP.md):
 - **Ask Claude to sync** (no setup) — Claude uses its own Google Sheets /

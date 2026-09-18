@@ -419,6 +419,80 @@ body.light-mode .btn-primary { color: #fff; }
 }
 .flyout.wins-se .table-scroll { margin-left: 18px; }
 
+/* ── Recent Technical Wins: celebration banner ───────────────────────────── */
+/* Sits above the quarter accordions and covers the last 14 days only (the
+   window lives in winCelebration.js, not here). The banner tints itself from
+   the hero win's own status — green for Closed/Won, blue for a technical win
+   still open — so the kind of win reads before any of the words do. Both hues
+   are the per-theme status tokens: blue ink here is --blue, never the shared
+   brand chrome --okta-blue-lt. Losses never reach this component. */
+.win-celebrate {
+  position: relative;
+  margin: 0 0 14px;
+  padding: 13px 40px 12px 15px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--celebrate-ink);
+  border-radius: 10px;
+  background: linear-gradient(90deg, var(--celebrate-fill) 0%, var(--bg-card) 72%);
+  animation: win-celebrate-in .28s ease-out;
+}
+/* One pair of locals per status, so every rule below reads the hue rather than
+   repeating a green/blue branch. */
+.win-celebrate.is-won  { --celebrate-ink: var(--green); --celebrate-fill: var(--green-dim); }
+.win-celebrate.is-tech { --celebrate-ink: var(--blue);  --celebrate-fill: var(--blue-dim); }
+
+@keyframes win-celebrate-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) { .win-celebrate { animation: none; } }
+
+.win-celebrate-dismiss {
+  position: absolute; top: 8px; right: 8px;
+  display: flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; padding: 0;
+  border: none; border-radius: 6px;
+  background: transparent; color: var(--text-muted); cursor: pointer;
+}
+.win-celebrate-dismiss:hover { background: var(--bg-card-hover); color: var(--text-primary); }
+
+.win-celebrate-eyebrow {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--celebrate-ink);
+}
+/* The figure is the mark, so it carries the status hue at 24px+ where 3:1 is
+   the bar; the supporting lines stay theme ink. */
+.win-celebrate-figure {
+  font-size: 1.65rem; font-weight: 700; line-height: 1.15; margin-top: 3px;
+  font-variant-numeric: tabular-nums; color: var(--celebrate-ink);
+}
+.win-celebrate-opp { font-size: .86rem; font-weight: 600; color: var(--text-primary); margin-top: 2px; }
+.win-celebrate-se { font-size: .74rem; color: var(--text-secondary); margin-top: 1px; }
+
+.win-celebrate-more-label {
+  margin: 11px 0 5px; font-size: .68rem; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted);
+}
+.win-celebrate-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+/* A win per line, never wrapping: the opportunity column is the one that gives
+   way, so the SE and the amount stay where the eye expects them. */
+.win-celebrate-row {
+  display: grid; grid-template-columns: 7px minmax(0, 1fr) auto auto;
+  align-items: center; gap: 9px;
+  font-size: .78rem; white-space: nowrap;
+}
+.win-celebrate-dot { width: 7px; height: 7px; border-radius: 50%; }
+.win-celebrate-dot.is-won  { background: var(--green); }
+.win-celebrate-dot.is-tech { background: var(--blue); }
+.win-celebrate-row-opp { overflow: hidden; text-overflow: ellipsis; color: var(--text-primary); }
+.win-celebrate-row-se { font-size: .72rem; color: var(--text-secondary); }
+.win-celebrate-row-amount { font-variant-numeric: tabular-nums; color: var(--text-primary); }
+/* Aligns under the opportunity column rather than under the status dots. */
+.win-celebrate-overflow { padding-left: 16px; font-size: .72rem; color: var(--text-muted); }
+
+.win-celebrate-totals { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 11px; }
+
 /* ── Look Forward & Inspect: full-width opportunity cards ──────────────── */
 .opp-card-list { display: flex; flex-direction: column; gap: 12px; }
 
