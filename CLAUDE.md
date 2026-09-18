@@ -420,8 +420,9 @@ which is the same lesson as the stage strings and the attribution query above.
 The standard is enforced by `tests/test_ui_contrast.py`, which parses
 `style.css` and fails on a violation — so these are checked, not remembered.
 
-Two rules matter more than the rest, because breaking either is invisible in
-whichever theme you happen to have open:
+These rules matter more than the rest, because breaking any of them is
+invisible in whichever theme you happen to have open — and the button-ground
+one is invisible in both:
 
 - **Status hues are per-theme.** `--green`/`--amber`/`--red`/`--purple`/
   `--teal`/`--blue` (and `--text-muted`) are declared in BOTH `:root` and
@@ -434,6 +435,24 @@ whichever theme you happen to have open:
   `--okta-blue-lt` — one value for both themes, and a link colour that failed
   AA on white. Blue ink is `--blue`; `--okta-blue`/`--okta-blue-lt` are grounds
   and borders only, which `test_ui_contrast.py` now enforces.
+- **Declared twice is not the same as stepped twice.** The per-theme rule is
+  about two *different* values, not two declarations. `--border-focus` was
+  present in both blocks with one value, which satisfied the declared-in-both
+  test while the focus ring on a white input sat under the 3:1 non-text bar.
+  `_MUST_DIFFER` in `test_ui_contrast.py` now asserts the two declarations
+  differ for every ground-sensitive token; a token that genuinely wants one
+  shared value comes off that list deliberately rather than by loosening it.
+- **A ground that carries text is measured against its text.** Brand chrome is
+  exempt from the per-theme rule only because nothing is read on top of it —
+  the moment one of those grounds carries a label it stops being chrome.
+  `.btn-primary` was the exception nobody had measured: white on `--okta-blue`
+  sat just under AA and the old hover step, `--okta-blue-lt`, was far under, so
+  the button got *less* readable while pointed at. The button ground is now its
+  own token pair (`--btn-primary-bg` / `--btn-primary-bg-hover`) rather than a
+  re-stepped `--okta-blue`, because the other brand-blue call sites carry no
+  text and shouldn't move; hover and `:active` darken, never lighten, and
+  `:active` names its ground rather than inheriting hover's, since a keyboard
+  press fires `:active` with no `:hover`. Values in `UI_STANDARDS.md`.
 - **Light mode's surfaces stay distinct.** `--bg-app`/`--bg-card`/
   `--bg-card-hover`/`--bg-input`/`--bg-tag` were all `#FFFFFF`, which didn't
   just look flat: hover feedback stopped working (hover colour == base colour)

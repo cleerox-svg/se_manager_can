@@ -13,14 +13,30 @@
 
   --border:        #1A3456;
   --border-active: #007DC1;
+  /* The focus indicator, re-stepped per theme like a status hue: it is the
+     only thing marking a focused input, since the rule below drops the UA
+     outline. 6.76:1 on --bg-input here; see the light-mode block for white. */
   --border-focus:  #00A4E0;
 
-  /* Brand chrome, NOT ink: --okta-blue is the filled-button/border/bar ground
-     and --okta-blue-lt its hover step. Neither is stepped per theme because
-     neither is ever read as text on a card — for blue text, use --blue below. */
+  /* Brand chrome, NOT ink: --okta-blue is the tab underline / ARR bar /
+     sidebar rail / scrollbar-thumb ground and --okta-blue-lt its lighter step.
+     Neither is stepped per theme because neither is ever read as text on a
+     card — for blue text, use --blue below. */
   --okta-blue:     #007DC1;
   --okta-blue-lt:  #00A4E0;
   --okta-navy:     #00297A;
+
+  /* The one brand-blue ground that carries text: .btn-primary sets #fff on
+     it, so it is a contrast surface rather than decoration. --okta-blue
+     measured 4.46:1 against white — just under AA — and the old hover step
+     --okta-blue-lt measured 2.84:1, so the button got *less* readable exactly
+     while the pointer was on it. Split into its own token rather than
+     re-stepping --okta-blue, because the five other brand-blue call sites
+     carry no text and should stay on the brand value. One value for both
+     themes: the ink on it is #fff in both, so there is nothing to step.
+     Hover and active move darker — the safe direction under white ink. */
+  --btn-primary-bg:       #0079BB;   /* was --okta-blue    #007DC1 — 4.46:1, now 4.72:1 */
+  --btn-primary-bg-hover: #006CA8;   /* was --okta-blue-lt #00A4E0 — 2.84:1, now 5.66:1 */
 
   /* Status hues are per-theme, not shared: these are stepped for the navy
      grounds above and are re-stepped in the light-mode block for white. A
@@ -66,7 +82,11 @@
   --depth-raised: inset 0 1px 0 rgba(255,255,255,.07), 0 4px 16px rgba(0,0,0,.24), 0 1px 4px rgba(0,0,0,.14);
   --depth-raised-hover: inset 0 1px 0 rgba(255,255,255,.1), 0 8px 28px rgba(0,0,0,.3), 0 2px 6px rgba(0,0,0,.18);
   --depth-inset: inset 0 2px 5px rgba(0,0,0,.28), inset 0 1px 2px rgba(0,0,0,.18);
-  --depth-inset-focus: inset 0 2px 5px rgba(0,0,0,.28), 0 0 0 2px rgba(0,125,193,.22);
+  /* The ring was rgba(0,125,193,.22), which composites to 1.43:1 on a card —
+     decorative, not an indicator, and it was standing in for an outline the
+     focus rule removes. It is now the opaque focus token at 2px, so the ring
+     itself carries the same contrast as the border it surrounds. */
+  --depth-inset-focus: inset 0 2px 5px rgba(0,0,0,.28), 0 0 0 2px var(--border-focus);
   --glow-blue: 0 0 16px rgba(0,125,193,.45), 0 4px 12px rgba(0,0,0,.3);
   --card-grad: linear-gradient(180deg, rgba(255,255,255,.03) 0%, var(--bg-card) 100%);
   --shadow:      0 4px 24px rgba(0,0,0,.4);
@@ -255,9 +275,12 @@ tr.clickable { cursor: pointer; }
 }
 .btn:hover { background: var(--bg-card-hover); border-color: var(--border-active); box-shadow: var(--depth-raised-hover); }
 .btn:active { box-shadow: var(--depth-inset); transform: translateY(1px); }
-.btn-primary { background: var(--okta-blue); border-color: var(--okta-blue); color: #fff; box-shadow: var(--glow-blue); }
-.btn-primary:hover { background: var(--okta-blue-lt); }
-.btn-primary:active { box-shadow: var(--depth-inset); transform: translateY(1px); }
+.btn-primary { background: var(--btn-primary-bg); border-color: var(--btn-primary-bg); color: #fff; box-shadow: var(--glow-blue); }
+.btn-primary:hover { background: var(--btn-primary-bg-hover); border-color: var(--btn-primary-bg-hover); }
+/* :active names the hover ground explicitly rather than inheriting it: a
+   keyboard press fires :active without :hover, so leaving it unset made the
+   pressed ground depend on the input device. */
+.btn-primary:active { background: var(--btn-primary-bg-hover); border-color: var(--btn-primary-bg-hover); box-shadow: var(--depth-inset); transform: translateY(1px); }
 .btn:disabled { opacity: .5; cursor: not-allowed; box-shadow: var(--depth-raised); transform: none; }
 
 select, input[type="text"], input[type="search"], input[type="number"], textarea {
@@ -356,7 +379,11 @@ body.light-mode {
 
   --border:        #D2DDE9;
   --border-active: #007DC1;
-  --border-focus:  #00A4E0;
+  /* Was #00A4E0 here too — declared in both blocks but never re-stepped, so
+     the "declared twice" rule was satisfied while the value was still the
+     dark-theme one: 2.84:1 on a white input, under the 3:1 non-text bar a
+     focus indicator has to clear. Now 5.64:1. */
+  --border-focus:  #0A6CA8;
 
   /* Re-stepped for a white ground; see the note in :root. */
   --green:  #067A55;
@@ -387,7 +414,7 @@ body.light-mode {
   --depth-raised: inset 0 1px 0 rgba(255,255,255,.6), 0 4px 16px rgba(20,34,53,.08), 0 1px 4px rgba(20,34,53,.05);
   --depth-raised-hover: inset 0 1px 0 rgba(255,255,255,.7), 0 8px 28px rgba(20,34,53,.1), 0 2px 6px rgba(20,34,53,.06);
   --depth-inset: inset 0 2px 5px rgba(20,34,53,.08), inset 0 1px 2px rgba(20,34,53,.05);
-  --depth-inset-focus: inset 0 2px 5px rgba(20,34,53,.08), 0 0 0 2px rgba(0,125,193,.18);
+  --depth-inset-focus: inset 0 2px 5px rgba(20,34,53,.08), 0 0 0 2px var(--border-focus);
   --card-grad: linear-gradient(180deg, rgba(20,34,53,.015) 0%, var(--bg-card) 100%);
   --shadow:      0 4px 24px rgba(20,34,53,.12);
   --shadow-card: 0 2px 12px rgba(20,34,53,.08);
